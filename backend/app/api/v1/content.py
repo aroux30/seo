@@ -16,6 +16,7 @@ from app.schemas.content import (
     ContentArticleCreate,
     ContentArticleUpdate,
     ContentArticlePublishRequest,
+    ContentArticleRefineRequest,
     ContentArticleRead,
 )
 from app.services.content_service import (
@@ -23,6 +24,7 @@ from app.services.content_service import (
     get_content_briefs,
     get_content_brief_by_id,
     generate_seo_article,
+    refine_article_with_ai,
     get_content_articles,
     get_content_article_by_id,
     update_content_article,
@@ -198,6 +200,25 @@ async def update_article_endpoint(
         user_id=member.user_id,
     )
     await db.commit()
+    return article
+
+
+@router.post("/articles/detail/{article_id}/refine", response_model=ContentArticleRead)
+async def refine_article_endpoint(
+    article_id: UUID,
+    payload: ContentArticleRefineRequest,
+    db: AsyncSession = Depends(get_db),
+    member: OrganizationMember = Depends(require_role("seo_manager")),
+):
+    """Refine and upgrade an article with AI instructions and full PostgreSQL version history."""
+    await assert_article_in_org(db, article_id, member.organization_id)
+    article = await refine_article_with_ai(
+        db=db,
+        article_id=article_id,
+        instruction=payload.instruction,
+        mode=payload.mode or "auto_fix_100",
+        user_id=member.user_id,
+    )
     return article
 
 

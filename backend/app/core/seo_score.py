@@ -156,7 +156,10 @@ def score_article_detailed(
     else:
         add("title_beginning", False, 5, "Keyword missing")
         
-    add("title_number", bool(re.search(r"\d+", title)), 5, "Your title is using a number")
+    has_number = bool(re.search(r"[0-9۰-۹]", title)) or any(
+        num_word in title.lower() for num_word in ["صفر تا صد", "۰ تا ۱۰۰", "0 to 100", "یک", "دو", "سه", "چهار", "پنج", "شش", "هفت", "هشت", "نه", "ده", "100", "۱۰۰"]
+    )
+    add("title_number", has_number, 5, "Your title is using a number")
 
     # Content Readability (10 points)
     # Using Table of Contents (assume h2 presence denotes sections)

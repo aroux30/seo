@@ -57,6 +57,12 @@ class ContentArticlePublishRequest(BaseModel):
     post_status: Literal["draft", "publish"] = "draft"
 
 
+class ContentArticleRefineRequest(BaseModel):
+    instruction: str = Field(..., min_length=2, max_length=1000)
+    mode: str | None = Field(default="auto_fix_100")
+
+
+
 class ContentArticleRead(BaseModel):
     id: UUID
     website_id: UUID

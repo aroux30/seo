@@ -19,6 +19,12 @@ import {
   Globe,
   Share2,
   History,
+  Wand2,
+  X,
+  RefreshCw,
+  Layers,
+  Link2,
+  HelpCircle,
 } from 'lucide-react';
 import { VersionHistoryPanel } from '@/components/VersionHistoryPanel';
 
@@ -123,10 +129,43 @@ export default function ArticleEditorPage() {
   const [editMarkdown, setEditMarkdown] = useState('');
   const [viewMode, setViewMode] = useState<'preview' | 'markdown'>('preview');
   const [showHistory, setShowHistory] = useState(false);
+  const [showAiModal, setShowAiModal] = useState(false);
+  const [refining, setRefining] = useState(false);
+  const [aiPrompt, setAiPrompt] = useState('');
+  const [selectedPreset, setSelectedPreset] = useState<string>('auto_fix_100');
 
   useEffect(() => {
     fetchArticle();
   }, [articleId]);
+
+  const handleAiRefine = async (instructionText?: string, modeKey?: string) => {
+    if (!article) return;
+    const finalInstruction = (instructionText || aiPrompt).trim();
+    if (!finalInstruction) {
+      toast.error('لطفاً یک دستور برای هوش مصنوعی وارد کنید.');
+      return;
+    }
+    setRefining(true);
+    try {
+      const updated = await api.post<ArticleDetail>(
+        `/content/articles/detail/${articleId}/refine`,
+        {
+          instruction: finalInstruction,
+          mode: modeKey || selectedPreset,
+        }
+      );
+      setArticle(updated);
+      setEditTitle(updated.title);
+      setEditMarkdown(updated.content_markdown);
+      setShowAiModal(false);
+      setAiPrompt('');
+      toast.success('مقاله با موفقیت توسط هوش مصنوعی ارتقا یافت و در تاریخچه ثبت شد!');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : 'خطا در بازنویسی مقاله با هوش مصنوعی.');
+    } finally {
+      setRefining(false);
+    }
+  };
 
   // All three handlers go through the shared `api` client rather than raw fetch.
   // It resolves the API base from NEXT_PUBLIC_API_URL (so this page works off
@@ -255,6 +294,14 @@ export default function ArticleEditorPage() {
         </div>
 
         <div className="flex items-center gap-3">
+          <button
+            onClick={() => setShowAiModal(true)}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-sm font-medium transition-all shadow-lg shadow-purple-600/25 border border-purple-400/30"
+          >
+            <Sparkles className="w-4 h-4 text-purple-200 animate-pulse" />
+            بهبود هوشمند با AI
+          </button>
+
           <button
             onClick={() => setShowHistory(true)}
             className="flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-medium border border-slate-700 transition-all"
@@ -446,6 +493,157 @@ export default function ArticleEditorPage() {
           </div>
         </div>
       </div>
+
+      {/* AI Refine Modal */}
+      {showAiModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-xl p-6 space-y-6 shadow-2xl shadow-purple-950/50 relative">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-2xl bg-purple-500/10 border border-purple-500/20 text-purple-400">
+                  <Sparkles className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white">دستیار بهبود هوشمند با هوش مصنوعی</h3>
+                  <p className="text-xs text-slate-400">اصلاح، بازنویسی و رساندن نمره سئوی مقاله به ۱۰۰٪</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowAiModal(false)}
+                disabled={refining}
+                className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Quick Action Presets */}
+            <div className="space-y-2.5">
+              <label className="text-xs font-semibold text-slate-300">انتخاب سناریوی بهینه‌سازی سریع:</label>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedPreset('auto_fix_100');
+                    setAiPrompt('نمره سئو را به ۱۰۰ برسان: لینک‌های داخلی و خارجی معتبر اضافه کن، عنوان را سئو کن و کلمه کلیدی را در بخش‌های اصلی بهینه کن.');
+                  }}
+                  className={`p-3 rounded-2xl border text-right transition-all flex items-start gap-2.5 ${
+                    selectedPreset === 'auto_fix_100'
+                      ? 'bg-purple-600/15 border-purple-500/40 text-purple-200'
+                      : 'bg-slate-800/40 border-slate-800 hover:border-slate-700 text-slate-300'
+                  }`}
+                >
+                  <Wand2 className="w-4 h-4 text-purple-400 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-xs font-bold">ارتقای سئو به ۱۰۰٪</p>
+                    <p className="text-[11px] text-slate-400 mt-0.5">رفع خطاهای لینک‌سازی و ساختار</p>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedPreset('expand');
+                    setAiPrompt('حجم مقاله را گسترش بده: مثال‌های واقعی، بررسی دقیق‌تر جزئیات و ۲ زیرعنوان جدید به محتوا اضافه کن.');
+                  }}
+                  className={`p-3 rounded-2xl border text-right transition-all flex items-start gap-2.5 ${
+                    selectedPreset === 'expand'
+                      ? 'bg-purple-600/15 border-purple-500/40 text-purple-200'
+                      : 'bg-slate-800/40 border-slate-800 hover:border-slate-700 text-slate-300'
+                  }`}
+                >
+                  <Layers className="w-4 h-4 text-indigo-400 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-xs font-bold">افزایش عمق و حجم</p>
+                    <p className="text-[11px] text-slate-400 mt-0.5">توسعه سرفصل‌ها و توضیحات تکمیلی</p>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedPreset('links');
+                    setAiPrompt('لینک‌سازی داخلی و خارجی را تقویت کن: ۲ لینک خارجی معتبر علمی و ۲ لینک داخلی به مقالات مرتبط اضافه کن.');
+                  }}
+                  className={`p-3 rounded-2xl border text-right transition-all flex items-start gap-2.5 ${
+                    selectedPreset === 'links'
+                      ? 'bg-purple-600/15 border-purple-500/40 text-purple-200'
+                      : 'bg-slate-800/40 border-slate-800 hover:border-slate-700 text-slate-300'
+                  }`}
+                >
+                  <Link2 className="w-4 h-4 text-teal-400 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-xs font-bold">تقویت لینک‌سازی</p>
+                    <p className="text-[11px] text-slate-400 mt-0.5">تزریق مراجع خارجی و داخلی</p>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedPreset('faq');
+                    setAiPrompt('یک بخش سوالات متداول (FAQ) حرفه‌ای با حداقل ۴ سوال پرتکرار و پاسخ‌های کاربردی به مقاله اضافه کن.');
+                  }}
+                  className={`p-3 rounded-2xl border text-right transition-all flex items-start gap-2.5 ${
+                    selectedPreset === 'faq'
+                      ? 'bg-purple-600/15 border-purple-500/40 text-purple-200'
+                      : 'bg-slate-800/40 border-slate-800 hover:border-slate-700 text-slate-300'
+                  }`}
+                >
+                  <HelpCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-xs font-bold">تکمیل بخش FAQ</p>
+                    <p className="text-[11px] text-slate-400 mt-0.5">پاسخ‌های آماده برای فیچر اسنیپت</p>
+                  </div>
+                </button>
+              </div>
+            </div>
+
+            {/* Custom Instruction Box */}
+            <div className="space-y-2">
+              <label className="text-xs font-semibold text-slate-300">یا متن دستور اختصاصی خود را بنویسید:</label>
+              <textarea
+                rows={3}
+                value={aiPrompt}
+                onChange={(e) => setAiPrompt(e.target.value)}
+                placeholder="مثلاً: بخش نتیجه‌گیری را جذاب‌تر کن، مثال‌های عددی بیاور و نمره سئو را به حداکثر برسان..."
+                className="w-full rounded-2xl bg-slate-950 border border-slate-800 p-3.5 text-xs text-white placeholder-slate-500 focus:border-purple-500 focus:outline-none resize-none leading-relaxed"
+              />
+            </div>
+
+            {/* Actions */}
+            <div className="flex items-center justify-between pt-2">
+              <button
+                type="button"
+                onClick={() => setShowAiModal(false)}
+                disabled={refining}
+                className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium transition-all"
+              >
+                انصراف
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleAiRefine()}
+                disabled={refining || !aiPrompt.trim()}
+                className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-semibold shadow-lg shadow-purple-600/30 transition-all disabled:opacity-50"
+              >
+                {refining ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin text-purple-200" />
+                    <span>در حال ارتقای هوشمند مقاله...</span>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-4 h-4 text-purple-200" />
+                    <span>اعمال و ارتقای مقاله</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <VersionHistoryPanel
         articleId={articleId}
