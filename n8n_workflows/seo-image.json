@@ -1,0 +1,117 @@
+{
+  "id": "IMGGEN8303Fqhg01",
+  "name": "SEO Image Generator Webhook",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "seo-image",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [
+        200,
+        300
+      ],
+      "id": "node-img-webhook",
+      "webhookId": "seo-image-webhook-id"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst body = $json.body || {};\nconst kw = body.keyword || body.target_keyword || '';\nlet prompt = (body.prompt || '').trim();\n\nif (!prompt && kw) {\n  prompt = 'modern photorealistic 4k commercial product photography of ' + kw + ', studio lighting, high resolution, crisp details, no text, no watermarks';\n} else if (!prompt) {\n  prompt = 'modern high-tech digital workspace with glowing futuristic interfaces, 4k ultra-realistic photography, no text';\n}\n\nprompt = prompt.replace(/[\\r\\n]+/g, ' ').trim();\nconst width = body.width || 1200;\nconst height = body.height || 630;\nconst model = body.model || 'flux';\nconst seed = body.seed || (Math.floor(Math.random() * 999999) + 1);\n\nconst imgUrl = 'https://image.pollinations.ai/prompt/' + encodeURIComponent(prompt) + '?width=' + width + '&height=' + height + '&nologo=true&model=' + model + '&seed=' + seed;\n\nreturn [{\n  json: {\n    prompt: prompt,\n    image_url: imgUrl,\n    keyword: kw,\n    width: width,\n    height: height,\n    model: model,\n    seed: seed\n  }\n}];\n"
+      },
+      "name": "Prepare Image Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        300
+      ],
+      "id": "node-img-prep"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.image_url }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+            }
+          ]
+        }
+      },
+      "name": "Generate AI Image",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        680,
+        300
+      ],
+      "id": "node-img-http"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nlet b64 = '';\nlet mime = 'image/jpeg';\n\ntry {\n  const buffer = await this.helpers.getBinaryDataBuffer(0, 'data');\n  if (buffer) {\n    b64 = buffer.toString('base64');\n  }\n} catch (e) {\n  if ($input.first().binary && $input.first().binary.data) {\n    b64 = $input.first().binary.data.data || '';\n    mime = $input.first().binary.data.mimeType || 'image/jpeg';\n  }\n}\n\nconst reqData = $('Prepare Image Request').first().json;\n\nreturn [{\n  json: {\n    status: b64 ? 'success' : 'failed',\n    prompt: reqData.prompt,\n    image_url: reqData.image_url,\n    image_b64: b64,\n    featured_image_b64: b64,\n    mime_type: mime,\n    size_bytes: b64 ? Math.round((b64.length * 3) / 4) : 0\n  }\n}];\n"
+      },
+      "name": "Format Image Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        920,
+        300
+      ],
+      "id": "node-img-format"
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Prepare Image Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Image Request": {
+      "main": [
+        [
+          {
+            "node": "Generate AI Image",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate AI Image": {
+      "main": [
+        [
+          {
+            "node": "Format Image Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "name": "SEO Content Brief (AI)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "seo-content-brief",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "1",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [ 250, 300 ],
+      "webhookId": "seo-content-brief"
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{\n  json: {\n    title: 'بریف محتوای نمونه n8n',\n    secondary_keywords: ['کلمه 1', 'کلمه 2'],\n    outline: {\n      h1: 'راهنمای جامع',\n      introduction: 'مقدمه مقاله...',\n      headings: [\n        { level: 'H2', text: 'سرتیتر اول', subtopics: ['زیرموضوع'] }\n      ],\n      faqs: [\n        { question: 'سوال', answer: 'جواب' }\n      ],\n      internal_link_targets: [\n        { anchor: 'لینک', target: '/' }\n      ]\n    }\n  }\n}];"
+      },
+      "id": "2",
+      "name": "Generate Brief",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [ 450, 300 ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [ [ { "node": "Generate Brief", "type": "main", "index": 0 } ] ]
+    }
+  },
+  "active": false,
+  "settings": {}
+}

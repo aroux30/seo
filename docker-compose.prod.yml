@@ -1,0 +1,165 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-seo_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-seo_secure_password_2026}
+      POSTGRES_DB: ${POSTGRES_DB:-ai_seo_os_db}
+    volumes:
+      - pgdata_prod:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-seo_admin} -d ${POSTGRES_DB:-ai_seo_os_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: always
+    volumes:
+      - redisdata_prod:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  n8n:
+    image: n8nio/n8n:latest
+    restart: always
+    env_file:
+      - .env.production
+    environment:
+      - N8N_HOST=${DOMAIN:-localhost}
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=https
+      - WEBHOOK_URL=https://${DOMAIN:-localhost}/n8n/
+      - N8N_PATH=/n8n/
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=${N8N_USER:-admin}
+      - N8N_BASIC_AUTH_PASSWORD=${N8N_PASSWORD:-seo_n8n_2026}
+      - GENERIC_TIMEZONE=Asia/Tehran
+      - N8N_LOG_LEVEL=info
+      - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
+    volumes:
+      - n8n_data:/home/node/.n8n
+    depends_on:
+      redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
+    restart: always
+    env_file:
+      - .env.production
+    environment:
+      # DATABASE_URL intentionally NOT set here: it comes from .env.production.
+      # Interpolating it via ${POSTGRES_PASSWORD} silently falls back to the
+      # literal default when compose cannot resolve the variable, which breaks auth.
+      - REDIS_URL=redis://redis:6379/0
+      - N8N_WEBHOOK_BASE_URL=http://n8n:5678
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      default:
+        aliases:
+          - seo-backend
+
+  celery_worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
+    restart: always
+    env_file:
+      - .env.production
+    environment:
+      # DATABASE_URL comes from .env.production — see note on the backend service.
+      - REDIS_URL=redis://redis:6379/0
+      - N8N_WEBHOOK_BASE_URL=http://n8n:5678
+    command: celery -A app.workers.celery_app worker --loglevel=info -c 4
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  celery_beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
+    restart: always
+    env_file:
+      - .env.production
+    environment:
+      # DATABASE_URL comes from .env.production — see note on the backend service.
+      - REDIS_URL=redis://redis:6379/0
+    command: celery -A app.workers.celery_app beat --loglevel=info
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+      args:
+        - NEXT_PUBLIC_API_URL=https://seo.arouxpingg.com/api/v1
+    restart: always
+    env_file:
+      - .env.production
+    environment:
+      - NEXT_PUBLIC_API_URL=/api/v1
+    depends_on:
+      - backend
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  nginx:
+    image: nginx:alpine
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - certbot_certs:/etc/letsencrypt
+      - certbot_webroot:/var/www/certbot
+      - /etc/letsencrypt:/host_certs:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - backend
+      - frontend
+      - n8n
+
+  certbot:
+    image: certbot/certbot:latest
+    volumes:
+      - certbot_webroot:/var/www/certbot
+      - certbot_certs:/etc/letsencrypt
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
+
+volumes:
+  pgdata_prod:
+  redisdata_prod:
+  n8n_data:
+  certbot_webroot:
+  certbot_certs:

@@ -1,0 +1,173 @@
+{
+  "id": "KR9KC8303Fqhg5bE",
+  "name": "SEO Article Webhook",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "seo-article",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [
+        180,
+        300
+      ],
+      "id": "node-webhook",
+      "webhookId": "a0aa44d8-28bf-4e75-9350-5e58d9f00729"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Write a highly engaging, professional SEO Persian Article for the keyword: '{{ $json.body.target_keyword }}'.\nTitle constraint: '{{ $json.body.title }}'. Outline constraint: {{ JSON.stringify($json.body.outline) }}.\n\nAct as an expert SEO Copywriter. Follow these HARD RULES exactly — they are checked automatically:\n1. TITLE: The article title MUST start with the exact keyword «{{ $json.body.target_keyword }}» and MUST contain a number (example shape: «{{ $json.body.target_keyword }}: ۷ راهکار طلایی برای ...\").\n2. KEYWORD DENSITY: Repeat the exact keyword «{{ $json.body.target_keyword }}» at least 10 times across the whole body (target 1% to 1.5% density). Use it in the first paragraph, in at least two <h2> subheadings, and naturally through the text.\n3. META DESCRIPTION: seo_metadata.meta_description MUST be 120-155 characters AND MUST contain the exact keyword.\n4. Content Length & Structure (CRITICAL): the article MUST contain AT LEAST 12 different <h2> sections, each followed by 120-180 words of body text, PLUS a Table of Contents list AND a «پرسش‌های متداول» section with 4 <h3> questions at the end. This structure automatically produces 2200-2600 words. Do NOT finish early; if you run out of ideas, add sections like «اشتباهات رایج», «مقایسه گزینه‌ها», «نکات حرفه‌ای», «چک‌لیست نهایی».\n5. Structure: short paragraphs, <h2>/<h3> subheadings, a Table of Contents list near the top.\n6. Media: Do NOT include any <img> tags. A featured image is attached automatically by the pipeline.\n7. External Links: include 2-3 links to REAL authoritative sites (Wikipedia, official sources). At least ONE dofollow (no rel attribute) to the most authoritative one; the others rel=\"nofollow\". Descriptive Persian anchor text.\n8. Internal Links: include 2-3 internal links with relative paths like <a href=\"/blog/related-topic\"> and Persian anchor text.\n9. Everything in fluent professional Persian. Also output image_prompt_english as described above.\n\nOutput ONLY valid JSON (no markdown block) with these exact keys:\n- title (string)\n- content_html (string)\n- image_prompt_english (string: a vivid 20-30 word ENGLISH image-generation prompt describing a concrete photorealistic scene matching the article topic — real objects, setting, lighting; no text or letters in the image)\n- seo_metadata (object containing: meta_description (120-155 chars, contains the keyword), word_count, keyword_density, readability_score)"
+      },
+      "name": "Basic LLM Chain",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.4,
+      "position": [
+        400,
+        300
+      ],
+      "id": "node-chain"
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-3.6-flash",
+        "options": {}
+      },
+      "name": "Google Gemini",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        400,
+        520
+      ],
+      "id": "node-gemini",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "tjSOVUp5qAyDxxUA",
+          "name": "Google Gemini 2moham"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "\nlet raw = $json.text || '';\nif (typeof raw === 'string') {\n  if (raw.startsWith('```')) {\n    raw = raw.replace(/^```[a-zA-Z]*\\s*/, '').replace(/```\\s*$/, '').trim();\n  }\n}\n\nlet parsed = {};\ntry {\n  parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;\n} catch (e) {\n  const match = typeof raw === 'string' ? raw.match(/\\{[\\s\\S]*\\}/) : null;\n  if (match) {\n    try { parsed = JSON.parse(match[0]); } catch (e2) {}\n  }\n}\n\nconst reqBody = $('Webhook').first().json.body || {};\nconst kw = reqBody.target_keyword || '';\nconst title = parsed.title || reqBody.title || kw;\nlet imgPrompt = (parsed.image_prompt_english || '').trim();\n\nif (!imgPrompt || imgPrompt.length < 15) {\n  imgPrompt = 'professional 4k photorealistic tech commercial image representing ' + kw + ', high resolution, studio lighting, cinematic, no text, no letters';\n}\n\nimgPrompt = imgPrompt.replace(/[\\r\\n]+/g, ' ').trim();\nconst seed = Math.floor(Math.random() * 999999) + 1;\nconst imgUrl = 'https://image.pollinations.ai/prompt/' + encodeURIComponent(imgPrompt) + '?width=1200&height=630&nologo=true&model=flux&seed=' + seed;\n\nreturn [{\n  json: {\n    ...parsed,\n    title: parsed.title || title,\n    content_html: parsed.content_html || '',\n    image_prompt_english: imgPrompt,\n    image_gen_url: imgUrl,\n    target_keyword: kw\n  }\n}];\n"
+      },
+      "name": "Parse & Prepare Image",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        640,
+        300
+      ],
+      "id": "node-parse-code"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.image_gen_url }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+            }
+          ]
+        }
+      },
+      "name": "Generate AI Image",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        860,
+        300
+      ],
+      "id": "node-http-image"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst articleData = $('Parse & Prepare Image').first().json;\nlet b64 = '';\n\ntry {\n  const buffer = await this.helpers.getBinaryDataBuffer(0, 'data');\n  if (buffer) {\n    b64 = buffer.toString('base64');\n  }\n} catch (e) {\n  if ($input.first().binary && $input.first().binary.data) {\n    b64 = $input.first().binary.data.data || '';\n  }\n}\n\nconst seoMeta = articleData.seo_metadata || {};\nseoMeta.featured_image_b64 = b64;\n\nreturn [{\n  json: {\n    ...articleData,\n    featured_image_b64: b64,\n    seo_metadata: seoMeta\n  }\n}];\n"
+      },
+      "name": "Assemble Final Package",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1080,
+        300
+      ],
+      "id": "node-assemble-code"
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Basic LLM Chain",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Basic LLM Chain",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Basic LLM Chain": {
+      "main": [
+        [
+          {
+            "node": "Parse & Prepare Image",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse & Prepare Image": {
+      "main": [
+        [
+          {
+            "node": "Generate AI Image",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate AI Image": {
+      "main": [
+        [
+          {
+            "node": "Assemble Final Package",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "name": "SEO Audit (AI)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "seo-audit",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "1",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [ 250, 300 ],
+      "webhookId": "seo-audit"
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{\n  json: {\n    overall_score: 85,\n    technical_score: 80,\n    content_score: 90,\n    ux_score: 85,\n    pages_crawled: 5,\n    issues: [\n      {\n        category: 'technical',\n        severity: 'critical',\n        title: 'سرعت لود پایین',\n        description: 'سرعت لود صفحه اصلی بیش از 3 ثانیه است.',\n        url: '/',\n        recommendation: 'استفاده از کش و فشرده سازی تصاویر'\n      }\n    ]\n  }\n}];"
+      },
+      "id": "2",
+      "name": "Generate Audit",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [ 450, 300 ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [ [ { "node": "Generate Audit", "type": "main", "index": 0 } ] ]
+    }
+  },
+  "active": false,
+  "settings": {}
+}

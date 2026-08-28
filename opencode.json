@@ -1,0 +1,13 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "n8n-mcp": {
+      "type": "remote",
+      "url": "https://seo.arouxpingg.com/n8n/mcp-server/http",
+      "headers": {
+        "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJiYTYxMDQyZS1hYmFiLTQ4ODQtYmNhNi02MWFmZTRjNjg4NmMiLCJpc3MiOiJuOG4iLCJhdWQiOiJtY3Atc2VydmVyLWFwaSIsImp0aSI6ImNmZTU3YTI4LWI2NDYtNGU4Yy1iMDdlLWZiY2YyMTMxZGZkMiIsImlhdCI6MTc4NTk3Mjk0OH0.N4JP-NvJBpfkvUkPDaFqWQYPxBOJo1QX78eSXv8cO2Q"
+      },
+      "enabled": true
+    }
+  }
+}

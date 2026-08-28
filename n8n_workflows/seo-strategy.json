@@ -1,0 +1,36 @@
+{
+  "name": "SEO Strategy (AI)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "seo-strategy",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "1",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [ 250, 300 ],
+      "webhookId": "seo-strategy"
+    },
+    {
+      "parameters": {
+        "jsCode": "// TODO: Replace this code node with actual AI Agent nodes to generate strategy\n// Input data is accessible via items[0].json\n\nreturn [{\n  json: {\n    title: 'استراتژی نمونه تولید شده توسط n8n',\n    executive_summary: 'در این بخش، هوش مصنوعی باید خلاصه اجرایی وضعیت سایت را برگرداند.',\n    target_audience: 'وبمسترها و صاحبان کسب و کار',\n    keyword_clusters: [\n      { name: 'خوشه اصلی', keywords: ['سئو', 'دیجیتال مارکتینگ'] }\n    ],\n    content_gaps: [\n      { topic: 'راهنمای جامع بک‌لینک', search_volume: 5000 }\n    ],\n    action_items: [\n      { task: 'بهینه‌سازی سرعت سایت', priority: 'High' }\n    ]\n  }\n}];"
+      },
+      "id": "2",
+      "name": "Generate Strategy",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [ 450, 300 ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [ [ { "node": "Generate Strategy", "type": "main", "index": 0 } ] ]
+    }
+  },
+  "active": false,
+  "settings": {}
+}
