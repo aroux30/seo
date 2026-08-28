@@ -16,6 +16,7 @@ from app.core.seo_score import score_article, score_article_detailed
 from app.core.banner import gradient_banner_b64
 from app.services.wordpress_service import publish_post_to_wordpress
 from app.services.version_service import create_version
+from app.core.ai_router import call_ai_with_rotation
 from app.config import get_settings
 
 settings = get_settings()
@@ -181,35 +182,59 @@ async def generate_content_brief(
     final_title = title or f"راهنمای جامع {target_keyword}"
     sec_kws = secondary_keywords or []
     
-    # Call n8n webhook
-    n8n_url = f"{settings.N8N_WEBHOOK_BASE_URL.rstrip('/')}/webhook/seo-content-brief"
-    payload = {
-        "website_id": str(website_id),
-        "target_keyword": target_keyword,
-        "search_intent": search_intent,
-        "secondary_keywords": sec_kws
-    }
-    
+    system_prompt = (
+        "تو یک متخصص ارشد استراتژی محتوا و سئو (SEO Content Strategist) هستی. "
+        "وظیفه تو تدوین بریف محتوایی (Content Brief) جامع، جذاب و سئو شده به زبان فارسی است. "
+        "پاسخ باید صرفاً یک آبجکت JSON معتبر و بدون هیچ متن اضافی باشد با ساختار دقیق زیر:\n"
+        "{\n"
+        '  "title": "عنوان جذاب و سئو شده برای مقاله",\n'
+        '  "outline": {\n'
+        '    "h1": "عنوان اصلی مقاله",\n'
+        '    "h2_sections": ["سرفصل اصلی ۱", "سرفصل اصلی ۲", "سرفصل اصلی ۳", "سرفصل اصلی ۴"],\n'
+        '    "key_takeaways": ["نکته کلیدی ۱", "نکته کلیدی ۲"],\n'
+        '    "faqs": [{"question": "پرسش متداول ۱؟", "answer": "پاسخ کوتاه و مفید"}]\n'
+        '  }\n'
+        "}"
+    )
+    user_prompt = (
+        f"کلمه کلیدی اصلی: {target_keyword}\n"
+        f"قصد کاربر از جستجو (Search Intent): {search_intent}\n"
+        f"کلمات کلیدی فرعی: {', '.join(sec_kws) if sec_kws else 'ندارد'}\n"
+        f"حجم هدف مقاله: {target_word_count} کلمه\n"
+        f"لطفاً بریف محتوایی سئو شده را در قالب JSON خواسته شده تولید کن."
+    )
+
     data = None
     try:
-        async with httpx.AsyncClient(timeout=180.0) as client:
-            resp = await client.post(n8n_url, json=payload)
-            resp.raise_for_status()
-            res_json = resp.json()
-            data = res_json.get("data", res_json)
-            
-            if "text" in data and isinstance(data["text"], str):
-                try:
-                    parsed_text = json.loads(data["text"])
-                    if isinstance(parsed_text, dict):
-                        data = parsed_text
-                except Exception:
-                    pass
-    except Exception:
-        pass
-            
-    if not data:
-        raise HTTPException(status_code=503, detail="ارتباط با سرور هوش مصنوعی قطع است (n8n workflow is down).")
+        raw_res, used_model, p_tok, c_tok = await call_ai_with_rotation(
+            db=db,
+            org_id=website.organization_id,
+            user_prompt=user_prompt,
+            system_prompt=system_prompt,
+            json_mode=True,
+        )
+        if raw_res:
+            try:
+                data = json.loads(raw_res)
+            except Exception:
+                match = re.search(r"\{.*\}", raw_res, flags=re.DOTALL)
+                if match:
+                    data = json.loads(match.group(0))
+    except AppException:
+        raise
+    except Exception as e:
+        raise AppException(
+            status_code=503,
+            detail=f"خطا در ارتباط با ارائه‌دهنده هوش مصنوعی: {str(e)}",
+            error_type="ai_generation_error",
+        )
+
+    if not data or not isinstance(data, dict):
+        raise AppException(
+            status_code=502,
+            detail="خروجی هوش مصنوعی نامعتبر بود. لطفاً دوباره تلاش کنید.",
+            error_type="invalid_ai_response",
+        )
 
     final_title = data.get("title", final_title)
     outline = data.get("outline", {})
@@ -281,6 +306,12 @@ async def generate_seo_article(
     user_id: UUID | None = None,
 ) -> ContentArticle:
     """Generate an AI-written, highly structured SEO Persian Article from Brief or Keyword."""
+    stmt = select(Website).where(Website.id == website_id)
+    res = await db.execute(stmt)
+    website = res.scalar_one_or_none()
+    if not website:
+        raise AppException(status_code=404, detail="وب‌سایت یافت نشد.", error_type="website_not_found")
+
     brief = None
     if brief_id:
         brief = await get_content_brief_by_id(db, brief_id)
@@ -289,48 +320,65 @@ async def generate_seo_article(
     req_title = title or (brief.title if brief else f"راهنمای جامع {kw}")
     outline = brief.outline if brief else None
 
-    # Call n8n webhook
-    n8n_url = f"{settings.N8N_WEBHOOK_BASE_URL.rstrip('/')}/webhook/seo-article"
-    payload = {
-        "website_id": str(website_id),
-        "target_keyword": kw,
-        "title": req_title,
-        "outline": outline
-    }
-    
+    system_prompt = (
+        "تو یک متخصص ارشد تولید محتوای سئو (Senior SEO Content Writer) و مسلط به نگارش فارسی روان، جذاب و رتبه‌گیر در موتورهای جستجو هستی. "
+        "وظیفه تو تولید یک مقاله جامع، استاندارد و کامل سئو بر اساس کلمه کلیدی و ساختار ارائه‌شده است.\n"
+        "قوانین تولید محتوا:\n"
+        "1. ساختار بدنه (content_html) باید کاملاً فارسی، حرفه‌ای و شامل تگ‌های HTML مثل <h2>, <h3>, <p>, <ul>, <li>, <strong> باشد.\n"
+        "2. در انتهای مقاله یک بخش سوالات متداول (FAQ) با حداقل ۳ پرسش و پاسخ کاربردی قرار بده.\n"
+        "3. چگالی کلمه کلیدی اصلی باید حدود ۱٪ تا ۱.۵٪ و کاملاً طبیعی باشد.\n"
+        "4. یک توضیحات متای استاندارد (meta_description) حداکثر ۱۶۰ کاراکتر حاوی کلمه کلیدی بنویس.\n"
+        "5. یک پرامپت انگلیسی باکیفیت و بدون متن برای تولید تصویر شاخص (image_prompt_english) تهیه کن.\n"
+        "پاسخ باید دقیقاً یک شیء JSON با ساختار زیر باشد:\n"
+        "{\n"
+        '  "title": "عنوان جذاب فارسی",\n'
+        '  "slug_english": "english-seo-slug",\n'
+        '  "content_html": "<p>مقدمه جذاب...</p><h2>...</h2>",\n'
+        '  "seo_metadata": {\n'
+        '    "meta_description": "توضیحات متا جذاب...",\n'
+        '    "image_prompt_english": "high quality photorealistic 4k tech photography, cinematic lighting, no text"\n'
+        '  }\n'
+        "}"
+    )
+    user_prompt = (
+        f"کلمه کلیدی هدف: {kw}\n"
+        f"عنوان درخواستی: {req_title}\n"
+        f"ساختار سرفصل‌ها و بریف: {json.dumps(outline, ensure_ascii=False) if outline else 'بر اساس بهترین ساختار سئو'}\n"
+        f"لطفاً مقاله کامل، جامع و سئو شده را در قالب JSON تولید کن."
+    )
+
     data = None
     try:
-        async with httpx.AsyncClient(timeout=300.0) as client:
-            resp = await client.post(n8n_url, json=payload)
-            resp.raise_for_status()
-            res_json = resp.json()
-            data = res_json.get("data", res_json)
+        raw_res, used_model, p_tok, c_tok = await call_ai_with_rotation(
+            db=db,
+            org_id=website.organization_id,
+            user_prompt=user_prompt,
+            system_prompt=system_prompt,
+            provider_preference=provider,
+            json_mode=True,
+        )
+        if raw_res:
+            try:
+                data = json.loads(raw_res)
+            except Exception:
+                match = re.search(r"\{.*\}", raw_res, flags=re.DOTALL)
+                if match:
+                    data = json.loads(match.group(0))
+    except AppException:
+        raise
+    except Exception as e:
+        raise AppException(
+            status_code=503,
+            detail=f"خطا در ارتباط با ارائه‌دهنده هوش مصنوعی: {str(e)}",
+            error_type="ai_generation_error",
+        )
 
-            if "text" in data and isinstance(data["text"], str):
-                raw_text = data["text"].strip()
-                # LLMs keep wrapping JSON in markdown fences despite
-                # instructions — strip them before parsing.
-                if raw_text.startswith("```"):
-                    raw_text = re.sub(r"^```[a-zA-Z]*\s*", "", raw_text)
-                    raw_text = re.sub(r"```\s*$", "", raw_text).strip()
-                parsed = None
-                try:
-                    parsed = json.loads(raw_text)
-                except Exception:
-                    # Last resort: grab the outermost {...} block.
-                    match = re.search(r"\{.*\}", raw_text, flags=re.DOTALL)
-                    if match:
-                        try:
-                            parsed = json.loads(match.group(0))
-                        except Exception:
-                            parsed = None
-                if isinstance(parsed, dict) and parsed.get("content_html"):
-                    data = parsed
-    except Exception:
-        pass
-
-    if not data:
-        raise HTTPException(status_code=503, detail="ارتباط با سرور هوش مصنوعی قطع است (n8n workflow is down).")
+    if not data or not isinstance(data, dict):
+        raise AppException(
+            status_code=502,
+            detail="خروجی هوش مصنوعی نامعتبر بود (عدم دریافت ساختار JSON). لطفا دوباره تلاش کنید.",
+            error_type="invalid_ai_response",
+        )
 
     article_title = data.get("title", req_title)
     slug = data.get("slug_english") or data.get("slug") or _generate_english_slug(article_title, kw)

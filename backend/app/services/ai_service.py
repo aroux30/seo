@@ -1,4 +1,5 @@
 import json
+import re
 import httpx
 from datetime import datetime, timezone
 from uuid import UUID
@@ -6,10 +7,10 @@ from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
-from app.core.exceptions import NotFoundError
-from fastapi import HTTPException
+from app.core.exceptions import NotFoundError, AppException
 from app.models import Website, AiSeoStrategy, AiAgentLog, Keyword, SeoAudit, SeoAuditIssue
 from app.services import agent_activity_service
+from app.core.ai_router import call_ai_with_rotation
 import time
 
 settings = get_settings()
@@ -68,103 +69,78 @@ async def generate_seo_strategy(
     prompt_tokens = 0
     completion_tokens = 0
 
-    n8n_url = f"{settings.N8N_WEBHOOK_BASE_URL.rstrip('/')}/webhook/seo-strategy"
-    
-    payload = {
-        "website_id": str(website_id),
-        "domain": domain,
-        "keywords": kw_names,
-        "issues": [{"title": i.title, "severity": i.severity} for i in issues]
-    }
-    
+    system_prompt = (
+        "تو یک استراتژیست ارشد سئو (Senior SEO Strategist) هستی. "
+        "وظیفه تو تحلیل کلمات کلیدی، مشکلات تکنیکال و تدوین استراتژی جامع سئو به زبان فارسی در قالب یک JSON معتبر با ساختار زیر است:\n"
+        "{\n"
+        '  "executive_summary": "خلاصه مدیریتی وضعیت سئو و اهداف...",\n'
+        '  "target_audience": "پرسونای مخاطبان هدف...",\n'
+        '  "keyword_clusters": [\n'
+        '    {"cluster_title": "خوشه ۱", "main_keyword": "کلمه ۱", "secondary_keywords": ["کلمه ۲"], "intent": "اطلاعاتی", "priority": "بالا"}\n'
+        '  ],\n'
+        '  "content_gaps": [\n'
+        '    {"topic": "موضوع شکاف", "target_keyword": "کلمه", "suggested_title": "عنوان پیشنهادی", "search_volume_estimate": 1000, "difficulty": 40}\n'
+        '  ],\n'
+        '  "action_items": [\n'
+        '    {"step": "اقدام اول", "task": "اقدام اول", "department": "تیم فنی", "timeline": "هفته ۱", "impact": "بالا"}\n'
+        '  ]\n'
+        "}"
+    )
+    user_prompt = (
+        f"دامنه وب‌سایت: {domain}\n"
+        f"کلمات کلیدی پیگیری‌شده: {', '.join(kw_names)}\n"
+        f"مشکلات فنی شناسایی‌شده:\n{issues_text if issues_text else 'بدون مشکل حاد'}\n"
+        f"لطفاً استراتژی جامع سئو را در ساختار JSON فوق تولید کن."
+    )
+
+    result = {}
     try:
-        async with httpx.AsyncClient(timeout=180.0) as client:
-            response = await client.post(n8n_url, json=payload)
-            response.raise_for_status()
-            data = response.json()
-            result = data.get("data", data)
-            
-            if "text" in result and isinstance(result["text"], str):
-                try:
-                    parsed_text = json.loads(result["text"])
-                    if isinstance(parsed_text, dict):
-                        result = parsed_text
-                except Exception:
-                    pass
-            
-            def _as_str(v) -> str:
-                """LLMs ignore "must be a string": target_audience came back as a
-                dict once and the VARCHAR insert crashed with a 500. Coerce."""
-                if v is None:
-                    return ""
-                if isinstance(v, str):
-                    return v
-                if isinstance(v, (dict, list)):
-                    return json.dumps(v, ensure_ascii=False)
-                return str(v)
+        raw_res, used_provider, prompt_tokens, completion_tokens = await call_ai_with_rotation(
+            db=db,
+            org_id=org_id,
+            user_prompt=user_prompt,
+            system_prompt=system_prompt,
+            provider_preference=provider,
+            json_mode=True,
+        )
+        if raw_res:
+            try:
+                result = json.loads(raw_res)
+            except Exception:
+                match = re.search(r"\{.*\}", raw_res, flags=re.DOTALL)
+                if match:
+                    result = json.loads(match.group(0))
 
-            def _as_list(v) -> list:
-                if v is None:
-                    return []
-                if isinstance(v, list):
-                    return v
-                return [v]
+        def _as_str(v) -> str:
+            if v is None:
+                return ""
+            if isinstance(v, str):
+                return v
+            if isinstance(v, (dict, list)):
+                return json.dumps(v, ensure_ascii=False)
+            return str(v)
 
-            executive_summary = _as_str(result.get("executive_summary", ""))
-            target_audience = _as_str(result.get("target_audience", ""))
-            keyword_clusters = _as_list(result.get("keyword_clusters", []))
-            content_gaps = _as_list(result.get("content_gaps", []))
-            action_items = _as_list(result.get("action_items", []))
+        def _as_list(v) -> list:
+            if v is None:
+                return []
+            if isinstance(v, list):
+                return v
+            return [v]
 
-            # Schema guard: the strategies page renders cluster_title /
-            # main_keyword / secondary_keywords / intent. LLMs drift off-schema
-            # (empty strings, wrong keys), and blank cards are worse than an
-            # honest failure — drop malformed clusters and coerce the numeric
-            # gap fields so the UI never renders placeholder junk.
-            def _clamp_int(v, lo, hi, default):
-                try:
-                    return max(lo, min(hi, int(v)))
-                except (TypeError, ValueError):
-                    return default
+        executive_summary = _as_str(result.get("executive_summary", ""))
+        target_audience = _as_str(result.get("target_audience", ""))
+        keyword_clusters = _as_list(result.get("keyword_clusters", []))
+        content_gaps = _as_list(result.get("content_gaps", []))
+        action_items = _as_list(result.get("action_items", []))
 
-            keyword_clusters = [
-                c for c in keyword_clusters
-                if isinstance(c, dict) and str(c.get("cluster_title") or "").strip()
-                and str(c.get("main_keyword") or "").strip()
-            ]
-            for c in keyword_clusters:
-                if not isinstance(c.get("secondary_keywords"), list):
-                    c["secondary_keywords"] = []
-                c.setdefault("priority", "متوسط")
-                c.setdefault("intent", "اطلاعاتی")
-            content_gaps = [
-                g for g in content_gaps
-                if isinstance(g, dict) and str(g.get("topic") or "").strip()
-            ]
-            for g in content_gaps:
-                g["search_volume_estimate"] = _clamp_int(
-                    g.get("search_volume_estimate"), 0, 1_000_000, 500
-                )
-                g["difficulty"] = _clamp_int(g.get("difficulty"), 0, 100, 50)
-                g.setdefault("target_keyword", g.get("topic", ""))
-                g.setdefault("suggested_title", g.get("topic", ""))
-            action_items = [
-                a for a in action_items
-                if isinstance(a, dict) and str(a.get("step") or a.get("task") or "").strip()
-            ]
-            for a in action_items:
-                a.setdefault("department", "تیم محتوا")
-                a.setdefault("timeline", "هفته ۱")
-                a.setdefault("impact", "متوسط")
-                if not a.get("step"):
-                    a["step"] = a.get("task", "")
-
-            prompt_tokens = result.get("prompt_tokens", 0)
-            completion_tokens = result.get("completion_tokens", 0)
-            used_provider = result.get("provider", "n8n_workflow")
-
+    except AppException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=503, detail="ارتباط با سرور هوش مصنوعی قطع است (n8n workflow is down).")
+        raise AppException(
+            status_code=503,
+            detail=f"خطا در تولید استراتژی با هوش مصنوعی: {str(e)}",
+            error_type="strategy_generation_error",
+        )
 
     # Schema guard — deliberately OUTSIDE the try above: a malformed (but
     # successfully received) LLM payload must surface as its own error, not be

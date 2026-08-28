@@ -23,6 +23,7 @@ from app.api.v1.versions import router as versions_router
 from app.api.v1.internal_links import router as internal_links_router
 from app.api.v1.agent_activity import router as agent_activity_router
 from app.api.v1.kpi import router as kpi_router
+from app.api.v1.ai_providers import router as ai_providers_router
 
 api_router = APIRouter()
 
@@ -49,6 +50,6 @@ api_router.include_router(versions_router)
 api_router.include_router(internal_links_router)
 api_router.include_router(agent_activity_router)
 api_router.include_router(kpi_router)
+api_router.include_router(ai_providers_router)
 
 __all__ = ["api_router"]
-

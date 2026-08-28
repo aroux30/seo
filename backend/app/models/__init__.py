@@ -234,8 +234,10 @@ from app.models.insights import (
     NOTIFICATION_CHANNELS,
     NOTIFICATION_STATUSES,
 )
+from app.models.ai_providers import AiProviderKey
 
 __all__ = [
+    "AiProviderKey",
     "Base",
     "User",
     "Organization",
