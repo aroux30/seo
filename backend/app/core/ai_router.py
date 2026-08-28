@@ -33,7 +33,7 @@ async def _call_gemini_direct(
     system_prompt: str = "",
     json_mode: bool = False,
     temperature: float = 0.7,
-    timeout_sec: float = 180.0,
+    timeout_sec: float = 300.0,
 ) -> tuple[str, int, int]:
     """Call Google Gemini REST API v1beta directly."""
     # Ensure standard model format
@@ -111,7 +111,7 @@ async def _call_openai_compatible(
     system_prompt: str = "",
     json_mode: bool = False,
     temperature: float = 0.7,
-    timeout_sec: float = 180.0,
+    timeout_sec: float = 300.0,
     extra_headers: dict | None = None,
 ) -> tuple[str, int, int]:
     """Call OpenAI / DeepSeek / OpenRouter chat completions endpoint."""
@@ -178,7 +178,7 @@ async def _call_claude_direct(
     system_prompt: str = "",
     json_mode: bool = False,
     temperature: float = 0.7,
-    timeout_sec: float = 180.0,
+    timeout_sec: float = 300.0,
 ) -> tuple[str, int, int]:
     """Call Anthropic Claude Messages API."""
     url = "https://api.anthropic.com/v1/messages"
@@ -250,7 +250,7 @@ async def test_single_ai_key(
                 model_name=clean_model or "gemini-3.6-flash",
                 user_prompt=test_user_prompt,
                 system_prompt=test_system_prompt,
-                timeout_sec=60.0,
+                timeout_sec=120.0,
             )
         elif provider == "openai":
             text, p_tok, c_tok = await _call_openai_compatible(
@@ -259,7 +259,7 @@ async def test_single_ai_key(
                 model_name=clean_model or "gpt-4o-mini",
                 user_prompt=test_user_prompt,
                 system_prompt=test_system_prompt,
-                timeout_sec=40.0,
+                timeout_sec=60.0,
             )
         elif provider == "deepseek":
             text, p_tok, c_tok = await _call_openai_compatible(
