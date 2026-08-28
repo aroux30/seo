@@ -39,7 +39,7 @@ async def _call_gemini_direct(
     # Ensure standard model format
     clean_model = model_name.strip()
     if not clean_model.startswith("gemini-"):
-        clean_model = f"gemini-{clean_model}" if clean_model else "gemini-2.0-flash"
+        clean_model = f"gemini-{clean_model}" if clean_model else "gemini-2.5-flash"
 
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{clean_model}:generateContent?key={api_key}"
 
@@ -247,7 +247,7 @@ async def test_single_ai_key(
         if provider == "gemini":
             text, p_tok, c_tok = await _call_gemini_direct(
                 api_key=raw_api_key,
-                model_name=clean_model or "gemini-2.0-flash",
+                model_name=clean_model or "gemini-2.5-flash",
                 user_prompt=test_user_prompt,
                 system_prompt=test_system_prompt,
                 timeout_sec=20.0,
@@ -274,7 +274,7 @@ async def test_single_ai_key(
             text, p_tok, c_tok = await _call_openai_compatible(
                 base_url="https://openrouter.ai/api/v1",
                 api_key=raw_api_key,
-                model_name=clean_model or "google/gemini-2.0-flash-001",
+                model_name=clean_model or "google/gemini-2.5-flash-001",
                 user_prompt=test_user_prompt,
                 system_prompt=test_system_prompt,
                 timeout_sec=20.0,
@@ -408,7 +408,7 @@ async def call_ai_with_rotation(
                 text, p_tok, c_tok = await _call_openai_compatible(
                     base_url="https://openrouter.ai/api/v1",
                     api_key=raw_key,
-                    model_name=model or "google/gemini-2.0-flash-001",
+                    model_name=model or "google/gemini-2.5-flash-001",
                     user_prompt=user_prompt,
                     system_prompt=system_prompt,
                     json_mode=json_mode,
@@ -456,13 +456,13 @@ async def call_ai_with_rotation(
         try:
             text, p_tok, c_tok = await _call_gemini_direct(
                 api_key=env_gemini_key,
-                model_name="gemini-2.0-flash",
+                model_name="gemini-2.5-flash",
                 user_prompt=user_prompt,
                 system_prompt=system_prompt,
                 json_mode=json_mode,
                 temperature=temperature,
             )
-            return text, "gemini:gemini-2.0-flash (env)", p_tok, c_tok
+            return text, "gemini:gemini-2.5-flash (env)", p_tok, c_tok
         except Exception as e:
             errors_encountered.append(f"Env GEMINI_API_KEY: {str(e)}")
 
