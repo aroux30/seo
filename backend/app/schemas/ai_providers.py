@@ -7,7 +7,7 @@ class AiProviderKeyCreate(BaseModel):
     provider_name: str = Field(default="gemini", description="gemini, openai, claude, deepseek, openrouter")
     label: str = Field(min_length=1, max_length=100, description="Display name for this key")
     api_key: str = Field(min_length=5, description="Plaintext API key to be encrypted and stored")
-    model_name: str = Field(default="gemini-2.5-flash", max_length=100)
+    model_name: str = Field(default="gemini-3.6-flash", max_length=100)
     priority: int = Field(default=1, ge=1, le=100, description="Lower number = used first")
     is_active: bool = True
 
@@ -43,7 +43,7 @@ class AiProviderKeyRead(BaseModel):
 class AiProviderKeyTestRequest(BaseModel):
     provider_name: str = "gemini"
     api_key: str
-    model_name: str = "gemini-2.5-flash"
+    model_name: str = "gemini-3.6-flash"
 
 
 class AiProviderKeyTestResult(BaseModel):

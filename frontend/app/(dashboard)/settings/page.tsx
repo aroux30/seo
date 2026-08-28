@@ -34,11 +34,11 @@ import {
 import toast from "react-hot-toast";
 
 const PROVIDER_OPTIONS = [
-  { id: "gemini", name: "Google Gemini (پیشنهادی)", defaultModel: "gemini-2.5-flash", color: "from-blue-500 to-indigo-600" },
+  { id: "gemini", name: "Google Gemini (پیشنهادی)", defaultModel: "gemini-3.6-flash", color: "from-blue-500 to-indigo-600" },
   { id: "openai", name: "OpenAI (GPT-4o / Mini)", defaultModel: "gpt-4o-mini", color: "from-emerald-500 to-teal-600" },
   { id: "claude", name: "Anthropic Claude", defaultModel: "claude-3-5-haiku-20241022", color: "from-amber-500 to-orange-600" },
   { id: "deepseek", name: "DeepSeek AI", defaultModel: "deepseek-chat", color: "from-cyan-500 to-blue-600" },
-  { id: "openrouter", name: "OpenRouter", defaultModel: "google/gemini-2.5-flash-001", color: "from-purple-500 to-pink-600" },
+  { id: "openrouter", name: "OpenRouter", defaultModel: "google/gemini-3.6-flash-001", color: "from-purple-500 to-pink-600" },
 ];
 
 export default function SettingsPage() {
@@ -64,7 +64,7 @@ export default function SettingsPage() {
     provider_name: "gemini",
     label: "",
     api_key: "",
-    model_name: "gemini-2.5-flash",
+    model_name: "gemini-3.6-flash",
     priority: 1,
   });
 
@@ -170,7 +170,7 @@ export default function SettingsPage() {
         provider_name: "gemini",
         label: "",
         api_key: "",
-        model_name: "gemini-2.5-flash",
+        model_name: "gemini-3.6-flash",
         priority: aiKeys.length + 1,
       });
       fetchAiKeys();
