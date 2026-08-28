@@ -250,7 +250,7 @@ async def test_single_ai_key(
                 model_name=clean_model or "gemini-3.6-flash",
                 user_prompt=test_user_prompt,
                 system_prompt=test_system_prompt,
-                timeout_sec=20.0,
+                timeout_sec=60.0,
             )
         elif provider == "openai":
             text, p_tok, c_tok = await _call_openai_compatible(
@@ -259,7 +259,7 @@ async def test_single_ai_key(
                 model_name=clean_model or "gpt-4o-mini",
                 user_prompt=test_user_prompt,
                 system_prompt=test_system_prompt,
-                timeout_sec=20.0,
+                timeout_sec=40.0,
             )
         elif provider == "deepseek":
             text, p_tok, c_tok = await _call_openai_compatible(
