@@ -325,15 +325,14 @@ def _enforce_100_seo_compliance(
     slug: str,
     article_id: UUID | None = None,
 ) -> tuple[str, str, str, str]:
-    """Deterministically enforce all 15 SEO checklist items so the score consistently hits 95-100/100."""
+    """Deterministically enforce all 15 SEO checklist items so Rank Math scores 95-100/100."""
     html = content_html or ""
     art_title = (title or "").strip()
     art_kw = (kw or "").strip()
     art_slug = (slug or "").strip()
-    
+
     # 1. Title formatting: ensure title starts with keyword and contains a number
     if art_kw:
-        # Check if starts with keyword
         if not art_title.lower().startswith(art_kw.lower()):
             has_num = bool(re.search(r"[0-9۰-۹]", art_title)) or any(
                 w in art_title for w in ["صفر تا صد", "۰ تا ۱۰۰", "0 to 100", "یک", "دو", "سه", "چهار", "پنج", "شش", "هفت", "هشت", "نه", "ده", "100", "۱۰۰"]
@@ -343,8 +342,7 @@ def _enforce_100_seo_compliance(
                 art_title = f"{art_kw}: {num_prefix} — {art_title}".strip(" —:")
             else:
                 art_title = f"{art_kw} — {art_title}".strip(" —:")
-        
-        # If title still lacks a number digit or phrase, add a clean number badge
+
         has_num = bool(re.search(r"[0-9۰-۹]", art_title)) or any(
             w in art_title for w in ["صفر تا صد", "۰ تا ۱۰۰", "0 to 100", "یک", "دو", "سه", "چهار", "پنج", "شش", "هفت", "هشت", "نه", "ده", "100", "۱۰۰"]
         )
@@ -377,13 +375,13 @@ def _enforce_100_seo_compliance(
     if art_kw and not any(art_kw.lower() in h.lower() for h in h2_matches):
         html = f"<h2>راهنمای گام‌به‌گام و جامع {art_kw}</h2>\n" + html
 
-    # 5. External links: ensure at least 1-2 authoritative external links exist
+    # 5. External links: ensure at least 2 authoritative external links exist
     anchor_tags = re.findall(r"<a\b[^>]*>", html, flags=re.IGNORECASE)
     external_tags = [
         t for t in anchor_tags
         if re.search(r'href=["\']https?://', t, flags=re.IGNORECASE)
     ]
-    if len(external_tags) == 0 and art_kw:
+    if len(external_tags) < 2 and art_kw:
         ext_kw_slug = art_kw.replace(" ", "_")
         ext_injection = (
             f'<div class="seo-references my-4 p-4 rounded-xl bg-slate-900/40 border border-slate-800">'
@@ -393,13 +391,14 @@ def _enforce_100_seo_compliance(
         )
         html = html + "\n" + ext_injection
 
-    # 6. Internal links: ensure at least 1-2 internal links exist
+    # 6. Internal links: ensure at least 2 internal links exist
+    anchor_tags_2 = re.findall(r"<a\b[^>]*>", html, flags=re.IGNORECASE)
     internal_tags = [
-        t for t in anchor_tags
+        t for t in anchor_tags_2
         if not re.search(r'href=["\']https?://', t, flags=re.IGNORECASE)
         and re.search(r'href=["\']/', t, flags=re.IGNORECASE)
     ]
-    if len(internal_tags) == 0:
+    if len(internal_tags) < 2:
         int_injection = (
             f'<div class="seo-related-articles my-4 p-4 rounded-xl bg-indigo-950/20 border border-indigo-900/40">'
             f'<p class="text-sm font-semibold text-indigo-300 mb-2">مقالات و آموزش‌های پیشنهادی:</p>'
@@ -410,21 +409,115 @@ def _enforce_100_seo_compliance(
         )
         html = html + "\n" + int_injection
 
-    # 7. Images / Media: ensure featured image / img tag
+    # 7. Images / Media: ensure at least one <img> with alt containing exact keyword
     if article_id and "<img" not in html.lower():
         html = _featured_img_tag(article_id, art_kw) + "\n" + html
-    elif art_kw and "alt=" not in html.lower():
-        if "<img" in html.lower():
-            html = re.sub(r"<img\b", f'<img alt="{art_kw}"', html, count=1, flags=re.IGNORECASE)
+
+    # Force alt attribute on ALL <img> tags to contain the keyword
+    if art_kw:
+        def _fix_img_alt(m: re.Match) -> str:
+            tag = m.group(0)
+            alt_m = re.search(r'alt=["\']([^"\']*)["\']', tag, flags=re.IGNORECASE)
+            if alt_m:
+                cur_alt = alt_m.group(1)
+                if art_kw.lower() not in cur_alt.lower():
+                    new_alt = f"{art_kw} - {cur_alt}" if cur_alt.strip() else art_kw
+                    tag = tag[:alt_m.start()] + f'alt="{new_alt}"' + tag[alt_m.end():]
+            else:
+                tag = tag[:4] + f' alt="{art_kw}"' + tag[4:]
+            return tag
+        html = re.sub(r"<img\b[^>]*>", _fix_img_alt, html, flags=re.IGNORECASE)
 
     # 8. Sections / H2 count: ensure at least 2 H2 sections exist
     h2_count = len(re.findall(r"<h2\b", html, flags=re.IGNORECASE))
     if h2_count < 2:
         html = html + f"\n<h2>جمع‌بندی و نکات کلیدی درباره {art_kw}</h2>\n<p>با رعایت این اصول و تداوم در پیاده‌سازی، می‌توانید به بالاترین رتبه‌ها در موتورهای جستجو دست پیدا کنید.</p>"
 
-    # 9. Clean and sanitize
+    # 9. Content length enforcement: ensure article has at least 1500+ words for Rank Math
+    plain_curr = re.sub(r"<[^>]+>", " ", html)
+    plain_curr = re.sub(r"\s+", " ", plain_curr).strip()
+    words_curr = len([w for w in plain_curr.split() if w])
+
+    if words_curr < 1500 and art_kw:
+        # Append rich expert sections to ensure content passes Rank Math depth criteria
+        expansion_html = (
+            f'\n<h2>تحلیل تخصصی و بررسی عمیق ابعاد مختلف {art_kw}</h2>\n'
+            f'<p>برای درک کامل و پیاده‌سازی حرفه‌ای <strong>{art_kw}</strong>، لازم است متغیرهای کلیدی و تاثیرگذار را با دقت ارزیابی کنیم. پیاده‌سازی اصولی این راهکارها تضمین‌کننده بهره‌وری بالاتر و بازگشت سرمایه (ROI) بیشتر خواهد بود.</p>\n'
+            f'<h3>مزایا و نقاط قوت پیاده‌سازی استاندارد</h3>\n'
+            f'<ul class="list-disc pr-5 space-y-1.5 text-slate-300">'
+            f'<li><strong>افزایش چشمگیر بازدهی:</strong> بهینه‌سازی دقیق فرآیندها عملکرد کلی را به بالاترین سطح ممکن می‌رساند.</li>'
+            f'<li><strong>کاهش ریسک و پایداری بلندمدت:</strong> با رعایت استانداردهای فنی، از بروز خطاهای احتمالی جلوگیری می‌شود.</li>'
+            f'<li><strong>سازگاری با ترندهای روز:</strong> پیاده‌سازی به‌روزترین متدولوژی‌ها در حوزه {art_kw} به کسب برتری رقابتی کمک می‌کند.</li>'
+            f'</ul>\n'
+            f'<h3>راهنمای رفع خطاهای رایج در این فرآیند</h3>\n'
+            f'<p>بسیاری از افراد هنگام شروع کار با چالش‌هایی مواجه می‌شوند. شناخت پیشگیرانه اشتباهات پرتکرار به شما امکان می‌دهد با اطمینان کامل به سوی اهداف خود در حوزه {art_kw} گام بردارید.</p>\n'
+            f'<h2>پرسش‌های متداول تکمیلی درباره {art_kw}</h2>\n'
+            f'<h3>چه مدت طول می‌کشد تا نتایج عملیاتی مشخص شوند؟</h3>\n'
+            f'<p>معمولاً بین ۲ تا ۶ هفته پس از اجرای دقیق مراحل، نتایج ملموس و قابل اندازه‌گیری مشاهده خواهند شد.</p>\n'
+            f'<h3>مهم‌ترین پیش‌نیازها برای شروع چیست؟</h3>\n'
+            f'<p>تدوین استراتژی اولیه، ابزارهای مناسب پایش و اجرای گام‌به‌گام دستورالعمل‌های ارائه‌شده اصلی‌ترین نیازهای اولیه هستند.</p>'
+        )
+        html = html + expansion_html
+
+    # 10. Precision Keyword density balancing (target strictly 1.1% - 1.3%)
+    if art_kw:
+        plain_text = re.sub(r"<[^>]+>", " ", html)
+        plain_text = re.sub(r"\s+", " ", plain_text).strip()
+        total_words = len([w for w in plain_text.split() if w])
+        kw_count = plain_text.lower().count(art_kw.lower())
+        current_density = (kw_count / max(total_words, 1)) * 100
+
+        # Target 1.2% (safely in Rank Math 1.0-1.5% green zone)
+        target_count = max(1, int(total_words * 0.012))
+
+        if current_density < 1.0 and total_words > 0:
+            needed = target_count - kw_count
+            phrases = [
+                f"در زمینه {art_kw}، توجه به جزئیات کاربردی بسیار حائز اهمیت است.",
+                f"بهره‌گیری موثر از {art_kw} بازدهی کلی را به میزان قابل توجهی ارتقا می‌دهد.",
+                f"تحلیل دقیق {art_kw} به درک بهتر فرآیندها و تصمیم‌گیری اصولی کمک می‌کند.",
+                f"برای پیاده‌سازی حرفه‌ای {art_kw}، رعایت گام‌به‌گام استانداردها توصیه می‌شود.",
+                f"کارشناسان حوزه {art_kw} بر پایش مستمر و به‌روزرسانی اطلاعات تاکید دارند.",
+            ]
+            p_matches = list(re.finditer(r"<p\b[^>]*>(.*?)</p>", html, flags=re.IGNORECASE | re.DOTALL))
+            if p_matches:
+                injected_count = 0
+                p_idx = 0
+                while injected_count < needed and p_idx < len(p_matches) * 5:
+                    actual_idx = p_idx % len(p_matches)
+                    phrase = phrases[injected_count % len(phrases)]
+                    p_blocks = list(re.finditer(r"<p\b[^>]*>(.*?)</p>", html, flags=re.IGNORECASE | re.DOTALL))
+                    if not p_blocks:
+                        break
+                    target_block = p_blocks[actual_idx % len(p_blocks)]
+                    inner_p = target_block.group(1)
+                    updated_p = f"{inner_p} {phrase}"
+                    html = html[:target_block.start()] + f"<p>{updated_p}</p>" + html[target_block.end():]
+                    injected_count += 1
+                    p_idx += 1
+            else:
+                for i in range(needed):
+                    phrase = phrases[i % len(phrases)]
+                    html = html + f"\n<p>{phrase}</p>"
+
+        elif current_density > 1.5 and kw_count > target_count:
+            # Gently reduce over-saturated keywords down to 1.2%
+            excess = kw_count - target_count
+            p_blocks = list(re.finditer(r"<p\b[^>]*>(.*?)</p>", html, flags=re.IGNORECASE | re.DOTALL))
+            reduced = 0
+            for block in reversed(p_blocks):
+                if reduced >= excess:
+                    break
+                inner = block.group(1)
+                if art_kw.lower() in inner.lower() and len(inner.split()) > 15:
+                    subbed = re.sub(re.escape(art_kw), "این موضوع", inner, count=1, flags=re.IGNORECASE)
+                    html = html[:block.start()] + f"<p>{subbed}</p>" + html[block.end():]
+                    reduced += 1
+
+    # 11. Clean and sanitize
     html = sanitize_html(html)
     return html, art_title, meta_desc, art_slug
+
 
 
 async def generate_seo_article(
@@ -454,23 +547,24 @@ async def generate_seo_article(
     system_prompt = (
         "تو یک متخصص ارشد تولید محتوای سئو (Chief SEO Copywriter) و مسلط به روان‌ترین و جذاب‌ترین نگارش فارسی، اصول Rank Math و استانداردهای الگوریتم‌های گوگل (E-E-A-T) هستی.\n"
         "وظیفه تو تولید یک مقاله بسیار عمیق، جامع، استاندارد و آماده کسب رتبه ۱ در موتورهای جستجو بر اساس کلمه کلیدی ارائه‌شده است.\n\n"
-        "قوانین اجباری تولید محتوا (سئو ۱۰۰٪):\n"
+        "قوانین اجباری تولید محتوا (سئو ۱۰۰٪ Rank Math):\n"
         "۱. عنوان مقاله (title): باید دقیقاً با کلمه کلیدی شروع شود و حتماً شامل یک عدد باشد (مثال: «آموزش سئو: ۱۰ گام طلایی از ۰ تا ۱۰۰»).\n"
         "۲. اسلاگ انگلیسی (slug_english): کوتاه، معنادار و سئو شده به انگلیسی (مثل seo-training-guide).\n"
         "۳. مقدمه و شروع: کلمه کلیدی اصلی باید دقیقاً در همان پاراگراف اول (۱۰٪ ابتدایی متن) ذکر شود.\n"
         "۴. ساختار و زیرعنوان‌ها: حداقل ۶ تا ۱۰ تگ <h2> و چندین تگ <h3>. کلمه کلیدی اصلی باید در حداقل ۲ زیرعنوان <h2> حضور داشته باشد.\n"
         "۵. فهرست مطالب (Table of Contents): در ابتدای مقاله یک بخش مرتب با سرفصل‌ها قرار بده.\n"
-        "۶. لینک‌های خارجی معتبر: حداقل ۲ لینک به منابع معتبر جهانی (مانند دانشنامه ویکی‌پدیا https://fa.wikipedia.org یا مراجع رسمی با انکرتکست فارسی توصیفی).\n"
-        "۷. لینک‌های داخلی: حداقل ۲ لینک داخلی با مسیرهای نسبی کاربردی مانند /blog/seo-strategy یا /blog/content-guide با انکرتکست مناسب.\n"
-        "۸. بخش سوالات متداول (FAQ): در انتهای مقاله یک بخش <h2>پرسش‌های متداول درباره " + kw + "</h2> شامل حداقل ۳ پرسش <h3> با پاسخ‌های کوتاه و مستقیم برای Featured Snippets گوگل ایجاد کن.\n"
-        "۹. چگالی کلمه کلیدی: کلمه کلیدی اصلی باید به صورت طبیعی و هدفمند بین ۱٪ تا ۱.۵٪ تکرار شود.\n"
+        "۶. لینک‌های خارجی معتبر (DoFollow): حداقل ۲ لینک به منابع معتبر جهانی (مانند دانشنامه ویکی‌پدیا https://fa.wikipedia.org یا مراجع رسمی).\n"
+        "۷. لینک‌های داخلی: حداقل ۲ لینک داخلی با مسیرهای نسبی کاربردی مانند /blog/seo-strategy یا /blog/content-guide.\n"
+        "۸. بخش سوالات متداول (FAQ): در انتهای مقاله یک بخش <h2>پرسش‌های متداول درباره " + kw + "</h2> شامل حداقل ۳ پرسش <h3> با پاسخ‌های کوتاه و مستقیم ایجاد کن.\n"
+        "۹. **چگالی کلمه کلیدی (بسیار مهم)**: کلمه کلیدی اصلی باید دقیقاً بین ۱.۰٪ تا ۱.۵٪ تکرار شود. مثلاً برای مقاله ۲۰۰۰ کلمه‌ای باید حداقل ۲۰ تا ۳۰ بار کلمه کلیدی ذکر شود. این مهم‌ترین فاکتور Rank Math است.\n"
         "۱۰. توضیحات متا (meta_description): بین ۱۳۰ تا ۱۵۵ کاراکتر، جذاب، با کلمه کلیدی دقیق.\n"
-        "۱۱. حجم محتوا: مقاله باید جامع، عمیق و کامل (بین ۱۵۰۰ تا ۲۵۰۰ کلمه) باشد.\n\n"
+        "۱۱. حجم محتوا: مقاله باید جامع، عمیق و کامل (حداقل ۲۰۰۰ کلمه و ترجیحاً ۲۵۰۰ کلمه) باشد. محتوای کوتاه‌تر از ۱۵۰۰ کلمه مردود است.\n"
+        "۱۲. **تصویر با alt کلمه کلیدی**: حتماً حداقل یک تگ <img> با alt حاوی کلمه کلیدی اصلی در متن HTML قرار بده. مثال: <img src=\"featured.jpg\" alt=\"" + kw + "\" />\n\n"
         "خروجی باید دقیقاً یک شیء JSON با ساختار زیر باشد:\n"
         "{\n"
         '  "title": "کلمه کلیدی: ۱۰ نکته طلایی از ۰ تا ۱۰۰...",\n'
         '  "slug_english": "keyword-guide",\n'
-        '  "content_html": "<p>مقدمه جذاب...</p><h2>...</h2>",\n'
+        '  "content_html": "<p>مقدمه جذاب...</p><h2>...</h2><img src=\\"featured.jpg\\" alt=\\"کلمه کلیدی\\" />",\n'
         '  "seo_metadata": {\n'
         '    "meta_description": "توضیحات متای بهینه حاوی کلمه کلیدی...",\n'
         '    "image_prompt_english": "high quality photorealistic 4k tech editorial photography, cinematic lighting, ultra detailed, no text"\n'
@@ -874,9 +968,15 @@ async def publish_article_to_wp(
     meta_desc = seo.get("meta_description", "") or ""
     focus_kw = seo.get("target_keyword") or (await _article_target_keyword(db, article))
     wp_meta = {
+        # Rank Math SEO meta fields
         "rank_math_focus_keyword": focus_kw or "",
         "rank_math_description": meta_desc,
         "rank_math_title": article.title or "",
+        "rank_math_robots": ["index", "follow"],
+        # Yoast SEO meta fields
+        "_yoast_wpseo_focuskw": focus_kw or "",
+        "_yoast_wpseo_metadesc": meta_desc,
+        "_yoast_wpseo_title": article.title or "",
     }
 
     wp_res = await publish_post_to_wordpress(

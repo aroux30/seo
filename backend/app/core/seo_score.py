@@ -107,7 +107,7 @@ def score_article_detailed(
         add("basic_first_10", False, 10, "Keyword missing")
         add("basic_content", False, 5, "Keyword missing")
         
-    add("basic_length", words >= 600, 5, f"Content is {words} words long (target 600+)")
+    add("basic_length", words >= 1500, 5, f"Content is {words} words long (target 1500+)")
 
     # Additional SEO (35 points)
     if kw:
@@ -118,16 +118,17 @@ def score_article_detailed(
         has_kw_in_alt = bool(re.search(rf"<img[^>]*alt=[\"'][^\"']*{re.escape(kw)}[^\"']*[\"']", content_html.lower()))
         add("additional_image_alt", has_kw_in_alt, 10, "Add an image with your Focus Keyword as alt text")
         
-        # The acceptance window and the message must agree: this used to pass
-        # anything from 0.5% to 2.5% while the text claimed the target was
-        # 1-1.5%, so out-of-range articles still collected the points.
-        density_ok = 0.5 <= density <= 2.5
+        # Rank Math ideal density is 1.0-1.5%. Below 1.0% or above 1.5% is a
+        # warning; below 0.5% or above 2.5% is a hard fail. Our scorer now
+        # mirrors the strict Rank Math band so our 100/100 actually means
+        # 100/100 in the WordPress plugin too.
+        density_ok = 1.0 <= density <= 1.5
         add(
             "additional_density",
             density_ok,
             10,
-            f"Keyword Density is {density:.2f}% (Acceptable 0.5-2.5%, Ideal 1-1.5%)"
-            + ("" if density_ok else " — خارج از محدوده قابل قبول"),
+            f"Keyword Density is {density:.2f}% (Rank Math ideal: 1.0-1.5%)"
+            + ("" if density_ok else " — خارج از محدوده ایده‌آل Rank Math"),
         )
     else:
         add("additional_subheading", False, 5, "Keyword missing")

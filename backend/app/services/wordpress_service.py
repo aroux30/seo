@@ -222,6 +222,8 @@ async def publish_post_to_wordpress(
             # --- featured image (base64 from the pipeline takes priority) ---
             _UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126 Safari/537.36"}
             body_image_candidates: list[str] = []
+            focus_kw = (meta or {}).get("rank_math_focus_keyword") or (meta or {}).get("_yoast_wpseo_focuskw") or title or ""
+
             if featured_image_b64:
                 try:
                     img_bytes = base64.b64decode(featured_image_b64)
@@ -239,6 +241,22 @@ async def publish_post_to_wordpress(
                         media_json = media_res.json()
                         featured_media_id = media_json.get("id")
                         featured_url = media_json.get("source_url")
+
+                        # Set alt_text, title, and description on the uploaded WordPress media object
+                        if featured_media_id and focus_kw:
+                            try:
+                                await client.post(
+                                    f"{clean_url}/wp-json/wp/v2/media/{featured_media_id}",
+                                    json={
+                                        "alt_text": focus_kw,
+                                        "title": focus_kw,
+                                        "caption": f"تصویر راهنمای {focus_kw}",
+                                        "description": f"تصویر شاخص و کاربردی برای مقاله {focus_kw}",
+                                    },
+                                    auth=auth,
+                                )
+                            except Exception:
+                                pass
                     else:
                         featured_note = "تصویر شاخص تولیدشده بیش از حد بزرگ بود."
                 except Exception as img_exc:
@@ -246,7 +264,7 @@ async def publish_post_to_wordpress(
 
             if not featured_media_id:
                 body_image_candidates = _candidate_image_urls(
-                    content_html, (meta or {}).get("rank_math_focus_keyword") or title
+                    content_html, focus_kw or title
                 )
             for img_url in body_image_candidates:
                 try:
@@ -270,6 +288,20 @@ async def publish_post_to_wordpress(
                     media_json = media_res.json()
                     featured_media_id = media_json.get("id")
                     featured_url = media_json.get("source_url")
+
+                    # Set alt_text on sideloaded media
+                    if featured_media_id and focus_kw:
+                        try:
+                            await client.post(
+                                f"{clean_url}/wp-json/wp/v2/media/{featured_media_id}",
+                                json={
+                                    "alt_text": focus_kw,
+                                    "title": focus_kw,
+                                },
+                                auth=auth,
+                            )
+                        except Exception:
+                            pass
                     break
                 except Exception as img_exc:
                     featured_note = f"بارگذاری تصویر شاخص ناموفق بود ({type(img_exc).__name__})."
@@ -289,41 +321,43 @@ async def publish_post_to_wordpress(
                 fixed = re.sub(r'(?i)\s*rel\s*=\s*(["\']?)[^"\'>]*\1', "", first, count=1)
                 content_html = content_html.replace(first, fixed, 1)
 
-            # Prevent duplicate images: if featured_media is set, remove any
-            # top featured-image tag from the post body so the WordPress theme
-            # outputs the featured image exactly once as the post thumbnail!
+            # Ensure Rank Math image requirement is 100% satisfied:
+            # Rank Math on-page analyzer scans `post_content` for `<img ... alt="focus_kw">`.
+            # We rewrite any internal streaming image URL to the real WordPress media URL,
+            # and guarantee that an image with alt="{focus_kw}" exists inside the HTML body.
             if featured_media_id:
                 payload["featured_media"] = featured_media_id
-                # Strip internal featured image tag from body
-                content_html = re.sub(
-                    r'<figure\b[^>]*class="[^"]*wp-block-image[^"]*"[^>]*>\s*<img\b[^>]*featured-image[^>]*>\s*</figure>\s*',
-                    '',
-                    content_html,
-                    flags=re.IGNORECASE,
+
+            # Rewrite internal backend streaming URL to real WordPress media URL
+            internal_src = re.compile(
+                r'(<img[^>]*src=")/api/v1/content/articles/detail/[^"]*/featured-image(")',
+                flags=re.IGNORECASE,
+            )
+            if featured_url and internal_src.search(content_html or ""):
+                content_html = internal_src.sub(
+                    rf'\g<1>{featured_url}\g<2>', content_html
                 )
-                if featured_url:
-                    content_html = re.sub(
-                        rf'<figure\b[^>]*class="[^"]*wp-block-image[^"]*"[^>]*>\s*<img\b[^>]*{re.escape(featured_url)}[^>]*>\s*</figure>\s*',
-                        '',
-                        content_html,
-                        flags=re.IGNORECASE,
-                    )
-            elif featured_url:
-                # If no featured_media_id was set on post, leave figure in body
-                internal_src = re.compile(
-                    r'(<img[^>]*src=")/api/v1/content/articles/detail/[^"]*/featured-image(")',
-                    flags=re.IGNORECASE,
+            elif featured_url and "<img" not in (content_html or "").lower():
+                # Inject featured image at the top of content so Rank Math on-page checks find it
+                content_html = (
+                    f'<figure class="wp-block-image size-large"><img src="{featured_url}" '
+                    f'alt="{focus_kw}" /></figure>\n' + content_html
                 )
-                if internal_src.search(content_html or ""):
-                    content_html = internal_src.sub(
-                        rf'\g<1>{featured_url}\g<2>', content_html
-                    )
-                else:
-                    alt = (meta or {}).get("rank_math_focus_keyword") or title
-                    content_html = (
-                        f'<figure class="wp-block-image size-large"><img src="{featured_url}" '
-                        f'alt="{alt}" /></figure>\n' + content_html
-                    )
+
+            # Ensure every img tag has alt text containing focus keyword if missing
+            if focus_kw:
+                def _wp_fix_img_alt(m: re.Match) -> str:
+                    tag = m.group(0)
+                    alt_m = re.search(r'alt=["\']([^"\']*)["\']', tag, flags=re.IGNORECASE)
+                    if alt_m:
+                        cur = alt_m.group(1)
+                        if focus_kw.lower() not in cur.lower():
+                            new_alt = f"{focus_kw} - {cur}" if cur.strip() else focus_kw
+                            tag = tag[:alt_m.start()] + f'alt="{new_alt}"' + tag[alt_m.end():]
+                    else:
+                        tag = tag[:4] + f' alt="{focus_kw}"' + tag[4:]
+                    return tag
+                content_html = re.sub(r"<img\b[^>]*>", _wp_fix_img_alt, content_html, flags=re.IGNORECASE)
 
             payload["content"] = content_html
 
