@@ -413,16 +413,39 @@ def _enforce_100_seo_compliance(
             else:
                 html = toc_block + "\n" + html
 
-    # 8. Content length enforcement: ensure article has at least 2,800+ words so WP & Rank Math see 2,600+ words
-    TARGET_MIN_WORDS = 2800
+    # 8. Deduplicate repeated identical tables and headings if previously injected
+    seen_tables = set()
+    def _dedup_table(m: re.Match) -> str:
+        tbl = m.group(0)
+        norm = re.sub(r"\s+", " ", tbl).strip()
+        if norm in seen_tables:
+            return ""
+        seen_tables.add(norm)
+        return tbl
+    html = re.sub(r"<table\b.*?</table>", _dedup_table, html, flags=re.IGNORECASE | re.DOTALL)
+
+    seen_headings = set()
+    def _dedup_headings(m: re.Match) -> str:
+        tag = m.group(0)
+        text = re.sub(r"<[^>]+>", "", tag).strip()
+        if text and text in seen_headings:
+            return ""
+        if text:
+            seen_headings.add(text)
+        return tag
+    html = re.sub(r"<h2\b.*?</h2>", _dedup_headings, html, flags=re.IGNORECASE | re.DOTALL)
+
+    # 9. Content length enforcement: ensure article has at least 2,750+ words so WP & Rank Math see 2,550+ words
+    TARGET_MIN_WORDS = 2750
     plain_curr = re.sub(r"<[^>]+>", " ", html)
     plain_curr = re.sub(r"\s+", " ", plain_curr).strip()
     words_curr = len([w for w in plain_curr.split() if w])
 
     if words_curr < TARGET_MIN_WORDS and art_kw:
-        # Append rich, structured expert modules until word count comfortably exceeds 2,800 words
         expansion_modules = [
             (
+                "toc-section-exp-1",
+                "تحلیل تخصصی و بررسی عمیق",
                 f'\n<h2 id="toc-section-exp-1">تحلیل تخصصی و بررسی عمیق ابعاد مختلف {art_kw}</h2>\n'
                 f'<p>برای درک کامل و پیاده‌سازی حرفه‌ای <strong>{art_kw}</strong>، لازم است متغیرهای کلیدی و تاثیرگذار را با دقت ارزیابی کنیم. پیاده‌سازی اصولی این راهکارها تضمین‌کننده بهره‌وری بالاتر، کاهش هزینه‌های عملیاتی و بازگشت سرمایه (ROI) بیشتر خواهد بود.</p>\n'
                 f'<h3>مزایا و نقاط قوت پیاده‌سازی استاندارد {art_kw}</h3>\n'
@@ -434,6 +457,8 @@ def _enforce_100_seo_compliance(
                 f'</ul>\n'
             ),
             (
+                "toc-section-exp-2",
+                "چک‌لیست گام‌به‌گام و راهنمای عملیاتی",
                 f'\n<h2 id="toc-section-exp-2">چک‌لیست گام‌به‌گام و راهنمای عملیاتی اجرای {art_kw}</h2>\n'
                 f'<p>اجرای مرحله‌به‌مرحله این فرآیند باعث جلوگیری از اتلاف زمان و منابع می‌شود. در ادامه اقدامات اساسی را مرور می‌کنیم:</p>\n'
                 f'<ol class="list-decimal pr-5 space-y-2 text-slate-300">\n'
@@ -444,6 +469,8 @@ def _enforce_100_seo_compliance(
                 f'</ol>\n'
             ),
             (
+                "toc-section-exp-3",
+                "جدول مقایسه‌ای رویکردها و تکنیک‌های برتر",
                 f'\n<h2 id="toc-section-exp-3">جدول مقایسه‌ای رویکردها و تکنیک‌های برتر در {art_kw}</h2>\n'
                 f'<div class="overflow-x-auto my-4"><table class="min-w-full text-xs text-right text-slate-300 border border-slate-700 rounded-lg">\n'
                 f'<thead class="bg-slate-800 text-slate-200"><tr><th class="p-2.5 border-b border-slate-700">شاخص ارزیابی</th><th class="p-2.5 border-b border-slate-700">روش سنتی</th><th class="p-2.5 border-b border-slate-700">روش پیشرفته و بهینه {art_kw}</th></tr></thead>\n'
@@ -454,60 +481,66 @@ def _enforce_100_seo_compliance(
                 f'</tbody></table></div>\n'
             ),
             (
+                "toc-section-exp-4",
+                "۵ اشتباه مرگبار",
                 f'\n<h2 id="toc-section-exp-4">۵ اشتباه مرگبار که در مسیر {art_kw} باید از آن‌ها دوری کنید</h2>\n'
-                f'<p>شناخت پیشگیرانه اشتباهات پرتکرار به شما امکان می‌دهد با اطمینان کامل به سوی اهداف خود در حوزه {art_kw} گام بردارید. بی‌توجهی به بازخورد مخاطبان، عدم به‌روزرسانی مستمر و تکیه بر متدهای منسوخ‌شده از بزرگ‌ترین موانع موفقیت هستند.</p>\n'
+                f'<p>شناخت پیشگیرانه اشتباهات پرتکرار به شما امکان می‌دهد با اطمینان کامل به سوی اهداف خود در این حوزه گام بردارید. بی‌توجهی به بازخورد مخاطبان، عدم به‌روزرسانی مستمر و تکیه بر متدهای منسوخ‌شده از بزرگ‌ترین موانع موفقیت هستند.</p>\n'
                 f'<ul class="list-disc pr-5 space-y-1.5 text-slate-300">\n'
-                f'<li>شروع بدون برنامه‌ریزی مدون و شفاف در حوزه {art_kw}.</li>\n'
-                f'<li>صرف‌نظر کردن از تست‌های ارزیابی عملکرد و رفتار کاربران در ارتباط با {art_kw}.</li>\n'
-                f'<li>عدم استفاده از ابزارهای اتوماسیون و پایش لحظه‌ای شاخص‌های کلیدی {art_kw}.</li>\n'
+                f'<li>شروع بدون برنامه‌ریزی مدون و شفاف در استراتژی‌های اجرایی.</li>\n'
+                f'<li>صرف‌نظر کردن از تست‌های ارزیابی عملکرد و رفتار کاربران.</li>\n'
+                f'<li>عدم استفاده از ابزارهای اتوماسیون و پایش لحظه‌ای شاخص‌های کلیدی.</li>\n'
                 f'<li>نادیده گرفتن استانداردهای سئو داخلی و بهینه‌سازی تجربه کاربری.</li>\n'
                 f'</ul>\n'
             ),
             (
+                "toc-section-exp-5",
+                "مطالعه موردی",
                 f'\n<h2 id="toc-section-exp-5">مطالعه موردی (Case Study) و تحلیل نتایج واقعی {art_kw}</h2>\n'
-                f'<p>بررسی کسب‌وکارهایی که با موفقیت از اصول {art_kw} بهره گرفته‌اند، نشان می‌دهد که تمرکز بر تولید محتوای جامع، بهینه‌سازی فنی مداوم و برآورده کردن دقیق قصد جستجوی کاربر (Search Intent) تا ۳۵۰٪ رشد ترافیک ارگانیک را به همراه داشته است.</p>\n'
-                f'<p>یک نمونه موفق پیاده‌سازی {art_kw} حاکی از آن است که بهبود زمان ماندگاری کاربر (Dwell Time) و کاهش نرخ پرش به طور مستقیم رتبه‌گیری در نتایج اول گوگل را تضمین می‌کند. این امر ارزش سرمایه‌گذاری بر روی کیفیت محتوا و رعایت استانداردهای E-E-A-T را بیش از پیش نمایان می‌سازد.</p>\n'
+                f'<p>بررسی کسب‌وکارهایی که با موفقیت از اصول حرفه‌ای بهره گرفته‌اند، نشان می‌دهد که تمرکز بر تولید محتوای جامع، بهینه‌سازی فنی مداوم و برآورده کردن دقیق قصد جستجوی کاربر (Search Intent) تا ۳۵۰٪ رشد ترافیک ارگانیک را به همراه داشته است.</p>\n'
+                f'<p>یک نمونه موفق پیاده‌سازی حاکی از آن است که بهبود زمان ماندگاری کاربر (Dwell Time) و کاهش نرخ پرش به طور مستقیم رتبه‌گیری در نتایج اول گوگل را تضمین می‌کند.</p>\n'
             ),
             (
+                "toc-section-exp-6",
+                "پرسش‌های متداول تکمیلی",
                 f'\n<h2 id="toc-section-exp-6">پرسش‌های متداول تکمیلی درباره {art_kw}</h2>\n'
-                f'<h3>چه مدت طول می‌کشد تا نتایج عملیاتی {art_kw} مشخص شوند؟</h3>\n'
+                f'<h3>چه مدت طول می‌کشد تا نتایج عملیاتی مشخص شوند؟</h3>\n'
                 f'<p>معمولاً بین ۲ تا ۶ هفته پس از اجرای دقیق مراحل، نتایج ملموس و ارتقای رتبه در موتورهای جستجو مشاهده خواهند شد.</p>\n'
-                f'<h3>مهم‌ترین پیش‌نیازها برای پیاده‌سازی حرفه‌ای {art_kw} چیست؟</h3>\n'
+                f'<h3>مهم‌ترین پیش‌نیازها برای پیاده‌سازی حرفه‌ای چیست؟</h3>\n'
                 f'<p>تدوین استراتژی اولیه، ابزارهای مناسب پایش و اجرای گام‌به‌گام دستورالعمل‌های ارائه‌شده اصلی‌ترین نیازهای اولیه هستند.</p>\n'
                 f'<h3>آیا رعایت مداوم این اصول برای پایداری رتبه ضرورت دارد؟</h3>\n'
-                f'<p>بله، الگوریتم‌های مدرن به صورت مستمر کیفیت محتوا و رفتار کاربران را ارزیابی می‌کنند و به‌روزرسانی منظم محتوای {art_kw} الزامی است.</p>\n'
+                f'<p>بله، الگوریتم‌های مدرن به صورت مستمر کیفیت محتوا و رفتار کاربران را ارزیابی می‌کنند و به‌روزرسانی منظم محتوا الزامی است.</p>\n'
             ),
             (
+                "toc-section-exp-7",
+                "جمع‌بندی و نقشه راه آینده",
                 f'\n<h2 id="toc-section-exp-7">جمع‌بندی و نقشه راه آینده در حوزه {art_kw}</h2>\n'
-                f'<p>در نهایت، دستیابی به بالاترین بازدهی در زمینه <strong>{art_kw}</strong> نیازمند تلفیق دانش فنی، شناخت نیازهای مخاطب و پایبندی به استانداردهای روز بین‌المللی است. با مرور و پیاده‌سازی دقیق نکات مطرح‌شده در این راهنما، می‌توانید با خیالی آسوده مسیر پیشرفت را طی کرده و از رقبای خود پیشی بگیرید. تداوم در تولید محتوای باکیفیت و ارزیابی هفتگی شاخص‌ها تضمین‌کننده موفقیت ماندگار کسب‌وکار شما خواهد بود.</p>\n'
+                f'<p>در نهایت، دستیابی به بالاترین بازدهی در این حوزه نیازمند تلفیق دانش فنی، شناخت نیازهای مخاطب و پایبندی به استانداردهای روز بین‌المللی است. با مرور و پیاده‌سازی دقیق نکات مطرح‌شده در این راهنما، می‌توانید با خیالی آسوده مسیر پیشرفت را طی کرده و از رقبای خود پیشی بگیرید. تداوم در تولید محتوای باکیفیت و ارزیابی هفتگی شاخص‌ها تضمین‌کننده موفقیت ماندگار خواهد بود.</p>\n'
             ),
             (
+                "toc-section-exp-8",
+                "تحلیل ابزارهای تخصصی و فناوری‌های نوین",
                 f'\n<h2 id="toc-section-exp-8">تحلیل ابزارهای تخصصی و فناوری‌های نوین در حوزه {art_kw}</h2>\n'
-                f'<p>امروزه بهره‌گیری از ابزارهای هوشمند تحلیلی، سامانه‌های خودکار پایش داده و پلتفرم‌های بهینه‌سازی فنی نقش تعیین‌کننده‌ای در موفقیت پروژه‌های مرتبط با {art_kw} ایفا می‌کنند. با انتخاب درست این فناوری‌ها، سرعت پردازش اطلاعات افزایش یافته و تصمیم‌گیری‌ها بر مبنای معیارهای دقیق آماری انجام خواهد شد.</p>\n'
+                f'<p>امروزه بهره‌گیری از ابزارهای هوشمند تحلیلی، سامانه‌های خودکار پایش داده و پلتفرم‌های بهینه‌سازی فنی نقش تعیین‌کننده‌ای در موفقیت پروژه‌ها ایفا می‌کنند. با انتخاب درست این فناوری‌ها، سرعت پردازش اطلاعات افزایش یافته و تصمیم‌گیری‌ها بر مبنای معیارهای دقیق آماری انجام خواهد شد.</p>\n'
                 f'<ul class="list-disc pr-5 space-y-1.5 text-slate-300">\n'
                 f'<li>استفاده از داشبوردهای نظارتی لحظه‌ای برای سنجش سلامت فنی محتوا.</li>\n'
                 f'<li>ارزیابی مستمر رفتار کاربران و تحلیل جریان ترافیک ورودی.</li>\n'
                 f'<li>یکپارچه‌سازی فرآیندهای بازاریابی با اهداف بلندمدت کسب‌وکار.</li>\n'
                 f'</ul>\n'
             ),
-            (
-                f'\n<h2 id="toc-section-exp-9">استراتژی‌های پیشرفته بازاریابی و افزایش نرخ تعامل با {art_kw}</h2>\n'
-                f'<p>برای اینکه محتوای مرتبط با <strong>{art_kw}</strong> بیشترین بازدهی تجاری را به همراه داشته باشد، باید بهینه‌سازی نرخ تبدیل (CRO) و مسیر سفر مشتری (Customer Journey) به شکلی منسجم در ساختار محتوا پیاده‌سازی شود. ایجاد فراخوان‌های اقدام (CTA) هوشمندانه و پاسخ به تمام نیازهای اطلاعاتی کاربر از ارکان دستیابی به این هدف به شمار می‌رود.</p>\n'
-            ),
         ]
-        for mod in expansion_modules:
-            html = html + mod
-            plain_test = re.sub(r"<[^>]+>", " ", html)
-            plain_test = re.sub(r"\s+", " ", plain_test).strip()
-            if len([w for w in plain_test.split() if w]) >= TARGET_MIN_WORDS:
-                break
+        for mod_id, mod_title, mod_content in expansion_modules:
+            if mod_id not in html and mod_title not in html:
+                html = html + mod_content
+                plain_test = re.sub(r"<[^>]+>", " ", html)
+                plain_test = re.sub(r"\s+", " ", plain_test).strip()
+                if len([w for w in plain_test.split() if w]) >= TARGET_MIN_WORDS:
+                    break
 
-    # 9. Use of Media: Rank Math requires at least 4 images/videos for full 100% green check
+    # 10. Use of Media: Rank Math requires at least 4 images/videos for full 100% green check
     img_tags = re.findall(r"<img\b[^>]*>", html, flags=re.IGNORECASE)
     img_src = f"/api/v1/content/articles/detail/{article_id}/featured-image" if article_id else "https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=1200&q=80"
-    
+
     if len(img_tags) == 0:
-        # Prepend header featured image
         html = (
             f'<figure class="wp-block-image size-large my-6">'
             f'<img src="{img_src}" alt="{art_kw} - راهنمای جامع و معرفی" class="rounded-xl shadow-md" />'
@@ -516,7 +549,6 @@ def _enforce_100_seo_compliance(
         )
         img_tags = re.findall(r"<img\b[^>]*>", html, flags=re.IGNORECASE)
 
-    # If still fewer than 4 images, inject contextually after H2 headings
     if len(img_tags) < 4 and art_kw:
         media_captions = [
             f"اینفوگرافیک و مراحل گام‌به‌گام پیاده‌سازی {art_kw}",
@@ -554,62 +586,74 @@ def _enforce_100_seo_compliance(
             return tag
         html = re.sub(r"<img\b[^>]*>", _fix_img_alt, html, flags=re.IGNORECASE)
 
-    # 10. Precision Keyword density balancing (target strictly 1.1% - 1.3%)
+    # 11. Robust Precision Keyword density balancing (strictly 1.10% - 1.30%)
     if art_kw:
-        plain_text = re.sub(r"<[^>]+>", " ", html)
-        plain_text = re.sub(r"\s+", " ", plain_text).strip()
-        total_words = len([w for w in plain_text.split() if w])
-        kw_count = plain_text.lower().count(art_kw.lower())
-        current_density = (kw_count / max(total_words, 1)) * 100
+        synonyms = ["این حوزه", "این مبحث", "این رویکرد", "این فرآیند", "این استراتژی", "این موضوع"]
+        phrases = [
+            f"در زمینه {art_kw}، رعایت اصول کلیدی اهمیت بالایی دارد.",
+            f"بهره‌گیری موثر از {art_kw} بازدهی کلی را افزایش می‌دهد.",
+            f"تحلیل دقیق {art_kw} به درک بهتر فرآیندها کمک می‌کند.",
+            f"پیاده‌سازی اصولی {art_kw} پایداری نتایج را تضمین می‌نماید.",
+        ]
 
-        # Target 1.2% (safely in Rank Math 1.0-1.5% green zone)
-        target_count = max(1, int(total_words * 0.012))
+        for _ in range(10):
+            plain_text = re.sub(r"<[^>]+>", " ", html)
+            plain_text = re.sub(r"\s+", " ", plain_text).strip()
+            total_words = len([w for w in plain_text.split() if w])
+            if total_words == 0:
+                break
+            kw_count = plain_text.lower().count(art_kw.lower())
+            current_density = (kw_count / total_words) * 100
 
-        if current_density < 1.0 and total_words > 0:
-            needed = target_count - kw_count
-            phrases = [
-                f"در زمینه {art_kw}، توجه به جزئیات کاربردی بسیار حائز اهمیت است.",
-                f"بهره‌گیری موثر از {art_kw} بازدهی کلی را به میزان قابل توجهی ارتقا می‌دهد.",
-                f"تحلیل دقیق {art_kw} به درک بهتر فرآیندها و تصمیم‌گیری اصولی کمک می‌کند.",
-                f"برای پیاده‌سازی حرفه‌ای {art_kw}، رعایت گام‌به‌گام استانداردها توصیه می‌شود.",
-                f"کارشناسان حوزه {art_kw} بر پایش مستمر و به‌روزرسانی اطلاعات تاکید دارند.",
-            ]
-            p_matches = list(re.finditer(r"<p\b[^>]*>(.*?)</p>", html, flags=re.IGNORECASE | re.DOTALL))
-            if p_matches:
-                injected_count = 0
-                p_idx = 0
-                while injected_count < needed and p_idx < len(p_matches) * 5:
-                    actual_idx = p_idx % len(p_matches)
-                    phrase = phrases[injected_count % len(phrases)]
-                    p_blocks = list(re.finditer(r"<p\b[^>]*>(.*?)</p>", html, flags=re.IGNORECASE | re.DOTALL))
-                    if not p_blocks:
-                        break
-                    target_block = p_blocks[actual_idx % len(p_blocks)]
-                    inner_p = target_block.group(1)
-                    updated_p = f"{inner_p} {phrase}"
-                    html = html[:target_block.start()] + f"<p>{updated_p}</p>" + html[target_block.end():]
-                    injected_count += 1
-                    p_idx += 1
-            else:
-                for i in range(needed):
-                    phrase = phrases[i % len(phrases)]
-                    html = html + f"\n<p>{phrase}</p>"
+            if 1.10 <= current_density <= 1.35:
+                break
 
-        elif current_density > 1.5 and kw_count > target_count:
-            # Gently reduce over-saturated keywords down to 1.2%
-            excess = kw_count - target_count
-            p_blocks = list(re.finditer(r"<p\b[^>]*>(.*?)</p>", html, flags=re.IGNORECASE | re.DOTALL))
-            reduced = 0
-            for block in reversed(p_blocks):
-                if reduced >= excess:
-                    break
-                inner = block.group(1)
-                if art_kw.lower() in inner.lower() and len(inner.split()) > 15:
-                    subbed = re.sub(re.escape(art_kw), "این موضوع", inner, count=1, flags=re.IGNORECASE)
-                    html = html[:block.start()] + f"<p>{subbed}</p>" + html[block.end():]
-                    reduced += 1
+            target_count = max(1, int(total_words * 0.012))
 
-    # 11. Clean and sanitize
+            if current_density > 1.35 and kw_count > target_count:
+                excess = kw_count - target_count
+                syn_idx = 0
+
+                def _reduce_in_p(p_match: re.Match) -> str:
+                    nonlocal excess, syn_idx
+                    if excess <= 0:
+                        return p_match.group(0)
+                    p_content = p_match.group(1)
+                    while excess > 0 and art_kw.lower() in p_content.lower():
+                        syn = synonyms[syn_idx % len(synonyms)]
+                        syn_idx += 1
+                        new_content = re.sub(rf"(?i)\b{re.escape(art_kw)}\b|{re.escape(art_kw)}", syn, p_content, count=1)
+                        if new_content == p_content:
+                            break
+                        p_content = new_content
+                        excess -= 1
+                    return f"<p>{p_content}</p>"
+
+                html = re.sub(r"<p\b[^>]*>(.*?)</p>", _reduce_in_p, html, flags=re.IGNORECASE | re.DOTALL)
+
+            elif current_density < 1.10:
+                needed = target_count - kw_count
+                inj_idx = 0
+
+                def _inject_in_p(p_match: re.Match) -> str:
+                    nonlocal needed, inj_idx
+                    if needed <= 0:
+                        return p_match.group(0)
+                    p_content = p_match.group(1)
+                    if art_kw.lower() not in p_content.lower() and len(p_content.split()) > 12:
+                        phrase = phrases[inj_idx % len(phrases)]
+                        inj_idx += 1
+                        needed -= 1
+                        return f"<p>{p_content} {phrase}</p>"
+                    return p_match.group(0)
+
+                html = re.sub(r"<p\b[^>]*>(.*?)</p>", _inject_in_p, html, flags=re.IGNORECASE | re.DOTALL)
+                if needed > 0:
+                    for i in range(needed):
+                        phrase = phrases[i % len(phrases)]
+                        html = html + f"\n<p>{phrase}</p>"
+
+    # 12. Clean and sanitize
     html = sanitize_html(html)
     return html, art_title, meta_desc, art_slug
 
