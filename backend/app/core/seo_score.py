@@ -84,9 +84,6 @@ def score_article_detailed(
     if kw:
         add("basic_title", kw in title_lc, 10, "Focus Keyword in the SEO title")
         add("basic_meta", kw in meta_desc_lc, 10, "Focus Keyword inside SEO meta description")
-        # Actually measured against the article slug now; previously this was an
-        # unconditional pass ("assume true") worth free points on every article.
-        # Support both Persian and English translated/clean slugs
         kw_in_slug = bool(slug_lc) and (
             kw in slug_lc
             or any(part in slug_lc for part in kw.split() if len(part) > 2)
@@ -106,22 +103,27 @@ def score_article_detailed(
         add("basic_url", False, 5, "Keyword missing")
         add("basic_first_10", False, 10, "Keyword missing")
         add("basic_content", False, 5, "Keyword missing")
-        
-    add("basic_length", words >= 1500, 5, f"Content is {words} words long (target 1500+)")
+
+    # Content length: Rank Math awards 100% full points only at 2,500+ words
+    # (1500-1999 gives 60%, 2000-2499 gives 70%, 2500+ gives 100%).
+    length_passed = words >= 2500
+    add(
+        "basic_length",
+        length_passed,
+        5,
+        f"Content is {words} words long (Rank Math 100% target: 2,500+ words)"
+        if length_passed
+        else f"Content is {words} words long (Rank Math 100% requires 2,500+ words — currently at partial score)",
+    )
 
     # Additional SEO (35 points)
     if kw:
-        # Check if keyword in h2, h3, h4 etc. For simplicity check raw html for kw near <h
         has_kw_in_heading = bool(re.search(rf"<h[2-4][^>]*>[^<]*{re.escape(kw)}[^<]*</h[2-4]>", content_html.lower()))
         add("additional_subheading", has_kw_in_heading, 5, "Focus Keyword found in subheading(s)")
-        
+
         has_kw_in_alt = bool(re.search(rf"<img[^>]*alt=[\"'][^\"']*{re.escape(kw)}[^\"']*[\"']", content_html.lower()))
         add("additional_image_alt", has_kw_in_alt, 10, "Add an image with your Focus Keyword as alt text")
-        
-        # Rank Math ideal density is 1.0-1.5%. Below 1.0% or above 1.5% is a
-        # warning; below 0.5% or above 2.5% is a hard fail. Our scorer now
-        # mirrors the strict Rank Math band so our 100/100 actually means
-        # 100/100 in the WordPress plugin too.
+
         density_ok = 1.0 <= density <= 1.5
         add(
             "additional_density",
@@ -135,20 +137,17 @@ def score_article_detailed(
         add("additional_image_alt", False, 10, "Keyword missing")
         add("additional_density", False, 10, "Keyword missing")
 
-    # External vs internal links are counted separately now; previously every
-    # <a> tag fed both checks, so a page of internal links satisfied "link out
-    # to external resources".
     add(
         "additional_external_links",
-        len(external_links) >= 1,
+        len(external_links) >= 2,
         5,
-        f"Link out to external resources ({len(external_links)} external link(s) found)",
+        f"Link out to external resources ({len(external_links)} external link(s) found — target: 2+)",
     )
     add(
         "additional_internal_links",
-        len(internal_links) >= 1,
+        len(internal_links) >= 2,
         5,
-        f"Add internal links in your content ({len(internal_links)} internal link(s) found)",
+        f"Add internal links in your content ({len(internal_links)} internal link(s) found — target: 2+)",
     )
 
     # Title Readability (10 points)
@@ -156,16 +155,28 @@ def score_article_detailed(
         add("title_beginning", title_lc.startswith(kw), 5, "Focus Keyword used at the beginning of SEO title")
     else:
         add("title_beginning", False, 5, "Keyword missing")
-        
+
     has_number = bool(re.search(r"[0-9۰-۹]", title)) or any(
-        num_word in title.lower() for num_word in ["صفر تا صد", "۰ تا ۱۰۰", "0 to 100", "یک", "دو", "سه", "چهار", "پنج", "شش", "هفت", "هشت", "نه", "ده", "100", "۱۰۰"]
+        num_word in title.lower()
+        for num_word in ["صفر تا صد", "۰ تا ۱۰۰", "0 to 100", "یک", "دو", "سه", "چهار", "پنج", "شش", "هفت", "هشت", "نه", "ده", "100", "۱۰۰"]
     )
     add("title_number", has_number, 5, "Your title is using a number")
 
     # Content Readability (10 points)
-    # Using Table of Contents (assume h2 presence denotes sections)
-    add("content_toc", h2 >= 2, 5, "Use Table of Contents (Sections detected)")
-    add("content_media", images >= 1, 5, "Your content contains images and/or video(s)")
+    # Table of Contents check: matches TOC block or multiple structured sections
+    has_toc = bool(re.search(r'class="[^"]*(?:toc|rank-math-toc|table-of-contents)[^"]*"|id="[^"]*(?:toc|rank-math-toc)[^"]*"', content_html, flags=re.IGNORECASE)) or h2 >= 3
+    add("content_toc", has_toc, 5, "Use Table of Contents to better present your content")
+
+    # Rank Math Use of Media test: requires at least 4 images/videos for full 100% green check
+    media_passed = images >= 4
+    add(
+        "content_media",
+        media_passed,
+        5,
+        f"Your content contains {images} image(s)/media (Rank Math 100% target: 4+ images)"
+        if media_passed
+        else f"Your content contains {images} image(s) (Rank Math awards full green only with 4+ images)",
+    )
 
     score = min(100, sum(c["points"] for c in checks))
     return {
