@@ -217,12 +217,34 @@ async def publish_post_to_wordpress(
     featured_url: str | None = None
     featured_note: str | None = None
 
+    focus_kw = (meta or {}).get("rank_math_focus_keyword") or (meta or {}).get("_yoast_wpseo_focuskw") or title or ""
+    meta_desc = (meta or {}).get("rank_math_description") or (meta or {}).get("_yoast_wpseo_metadesc") or ""
+
+    # Pre-enforce 100% Rank Math SEO compliance on content, title, description, and slug
+    from app.services.content_service import _enforce_100_seo_compliance
+    content_html, title, meta_desc, slug = _enforce_100_seo_compliance(
+        content_html=content_html or "",
+        title=title,
+        kw=focus_kw,
+        meta_desc=meta_desc,
+        slug=slug or "",
+        article_id=None,
+    )
+
+    # Sync back into meta dict
+    if meta is not None:
+        meta["rank_math_title"] = title
+        meta["rank_math_description"] = meta_desc
+        meta["rank_math_focus_keyword"] = focus_kw
+        meta["_yoast_wpseo_title"] = title
+        meta["_yoast_wpseo_metadesc"] = meta_desc
+        meta["_yoast_wpseo_focuskw"] = focus_kw
+
     try:
         async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
             # --- featured image (base64 from the pipeline takes priority) ---
             _UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126 Safari/537.36"}
             body_image_candidates: list[str] = []
-            focus_kw = (meta or {}).get("rank_math_focus_keyword") or (meta or {}).get("_yoast_wpseo_focuskw") or title or ""
 
             if featured_image_b64:
                 try:
