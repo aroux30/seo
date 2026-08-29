@@ -333,6 +333,11 @@ def _enforce_100_seo_compliance(
         if not has_num:
             art_title = f"{art_title} [۱۰ نکته کلیدی ۰ تا ۱۰۰]"
 
+    if len(art_title) > 200:
+        art_title = art_title[:197] + "..."
+    if len(art_slug) > 200:
+        art_slug = art_slug[:200]
+
     # 2. Meta description: ensure 120-160 chars and contains focus keyword
     if art_kw and art_kw.lower() not in (meta_desc or "").lower():
         plain = re.sub(r"<[^>]+>", " ", html)
