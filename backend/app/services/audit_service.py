@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.exceptions import NotFoundError
+from app.core.url_security import validate_external_url
 from app.models import Website, SeoAudit, SeoAuditIssue
 
 
@@ -241,12 +242,25 @@ async def _run_direct_site_audit(base_url: str) -> tuple[dict, dict, list]:
     is_https = base_url.lower().startswith("https://")
 
     try:
-        async with httpx.AsyncClient(timeout=20.0, verify=False, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
             resp = await client.get(base_url, headers=headers_desktop)
             status_code = resp.status_code
             html_content = resp.text
             response_headers = dict(resp.headers)
             load_time_sec = time.time() - start_time
+    except httpx.ConnectError:
+        load_time_sec = 2.5
+        html_content = f"<html><head><title>{base_url}</title></head><body><p>SSL or Connection Failed</p></body></html>"
+        issues.append({
+            "audit_id": "ssl-certificate-error",
+            "strategy": "security",
+            "category": "technical",
+            "severity": "critical",
+            "title": "خطای گواهی SSL یا عدم برقراری ارتباط امن",
+            "description": "ارتباط با وب‌سایت به دلیل خطای SSL یا گواهی نامعتبر برقرار نشد.",
+            "url": base_url,
+            "recommendation": "گواهی SSL معتبر بر روی دامنه نصب کنید و از فعال بودن پروتکل HTTPS اطمینان حاصل فرمایید.",
+        })
     except Exception as e:
         load_time_sec = 2.5
         html_content = f"<html><head><title>{base_url}</title></head><body><p>Site responded</p></body></html>"
@@ -503,6 +517,8 @@ async def run_website_audit(
     website = res.scalar_one_or_none()
     if not website:
         raise NotFoundError("Website", str(website_id))
+
+    target_url = validate_external_url(website.base_url)
 
     audit = SeoAudit(
         website_id=website_id,

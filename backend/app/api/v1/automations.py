@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.dependencies import require_role, require_webhook_secret
 from app.core.scoping import assert_website_in_org, assert_workflow_in_org
+from app.core.ratelimit import webhook_rate_limit
 from app.models import OrganizationMember
 from app.schemas.automations import (
     AutomationWorkflowCreate,
@@ -135,7 +136,11 @@ async def list_logs_endpoint(
     return await get_automation_logs(db, website_id, limit=limit)
 
 
-@router.post("/webhook-callback", response_model=AutomationLogRead)
+@router.post(
+    "/webhook-callback",
+    response_model=AutomationLogRead,
+    dependencies=[Depends(webhook_rate_limit)],
+)
 async def webhook_callback_endpoint(
     payload: AutomationWebhookCallbackRequest,
     db: AsyncSession = Depends(get_db),
