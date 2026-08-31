@@ -87,11 +87,13 @@ async def create_token_pair(
 async def refresh_tokens(db: AsyncSession, raw_refresh: str) -> dict:
     hashed = hash_token(raw_refresh)
     result = await db.execute(
-        select(RefreshToken).where(
+        select(RefreshToken)
+        .where(
             RefreshToken.token_hash == hashed,
             RefreshToken.revoked_at.is_(None),
             RefreshToken.expires_at > datetime.now(timezone.utc),
         )
+        .with_for_update()
     )
     token = result.scalar_one_or_none()
     if not token:

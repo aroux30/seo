@@ -98,18 +98,18 @@ async def _redis_incr(key: str, window: int) -> int | None:
 def client_ip(request: Request) -> str:
     """Best-effort client IP.
 
-    Behind the project's nginx reverse proxy the real IP arrives in
-    X-Forwarded-For; the leftmost entry is the original client. Only the
-    first hop is trusted because everything downstream is ours.
+    Behind the project's nginx reverse proxy the genuine client IP is set in
+    X-Real-IP by nginx ($remote_addr) and cannot be spoofed by downstream headers.
+    Falls back to X-Forwarded-For and request.client.host.
     """
+    real_ip = request.headers.get("x-real-ip")
+    if real_ip:
+        return real_ip.strip()
     forwarded = request.headers.get("x-forwarded-for")
     if forwarded:
         first = forwarded.split(",")[0].strip()
         if first:
             return first
-    real_ip = request.headers.get("x-real-ip")
-    if real_ip:
-        return real_ip.strip()
     return request.client.host if request.client else "unknown"
 
 

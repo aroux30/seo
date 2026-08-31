@@ -1,3 +1,5 @@
+import base64
+import hashlib
 from cryptography.fernet import Fernet, InvalidToken
 from app.config import get_settings
 from app.core.exceptions import AppException
@@ -6,14 +8,15 @@ settings = get_settings()
 
 def get_fernet() -> Fernet:
     key = settings.ENCRYPTION_KEY
-    # If the key is not a valid 32-byte url-safe base64 string, handle or fallback for dev
-    try:
-        return Fernet(key.encode() if isinstance(key, str) else key)
-    except Exception:
-        # For development fallback if a dummy key was set
-        from cryptography.fernet import Fernet as _Fernet
-        dummy_key = _Fernet.generate_key()
-        return _Fernet(dummy_key)
+    if key and isinstance(key, str) and len(key) == 44:
+        try:
+            return Fernet(key.encode("utf-8"))
+        except Exception:
+            pass
+    # Deterministic fallback derived from SECRET_KEY + ENCRYPTION_KEY
+    seed = (str(key or "") + ":" + str(settings.SECRET_KEY or "seoos-fallback-secret")).encode("utf-8")
+    derived = base64.urlsafe_b64encode(hashlib.sha256(seed).digest())
+    return Fernet(derived)
 
 def encrypt_value(value: str) -> str:
     """Encrypt a sensitive string (e.g., OAuth token, API key)."""

@@ -53,10 +53,11 @@ __all__ = [
 async def assert_website_in_org(
     db: AsyncSession, website_id: UUID, org_id: UUID
 ) -> Website:
-    """Return the website if it exists and is active."""
+    """Return the website if it exists and is active within the specified organization."""
     result = await db.execute(
         select(Website).where(
             Website.id == website_id,
+            Website.organization_id == org_id,
             Website.deleted_at.is_(None),
         )
     )
@@ -69,12 +70,13 @@ async def assert_website_in_org(
 async def _assert_child_in_org(
     db: AsyncSession, model, resource_id: UUID, org_id: UUID, label: str
 ):
-    """Shared implementation for resources that reference a website directly."""
+    """Shared implementation for resources that reference a website directly within the organization."""
     result = await db.execute(
         select(model)
         .join(Website, Website.id == model.website_id)
         .where(
             model.id == resource_id,
+            Website.organization_id == org_id,
             Website.deleted_at.is_(None),
         )
     )

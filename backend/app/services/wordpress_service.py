@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.encryption import encrypt_value, decrypt_value
 from app.core.exceptions import AppException, NotFoundError
+from app.core.url_security import validate_external_url
 from app.models import WordPressIntegration, Website
 
 _IMG_SRC_RE = re.compile(r'<img\b[^>]*src=["\']([^"\']+)["\']', flags=re.IGNORECASE)
@@ -46,7 +47,7 @@ async def connect_wordpress(
     if not result.scalar_one_or_none():
         raise NotFoundError("Website", str(website_id))
 
-    clean_url = wp_url.rstrip("/")
+    clean_url = validate_external_url(wp_url).rstrip("/")
     test_url = f"{clean_url}/wp-json/wp/v2/users/me"
 
     try:
@@ -290,7 +291,8 @@ async def publish_post_to_wordpress(
                 )
             for img_url in body_image_candidates:
                 try:
-                    img_res = await client.get(img_url, timeout=30.0, headers=_UA)
+                    safe_img_url = validate_external_url(img_url)
+                    img_res = await client.get(safe_img_url, timeout=30.0, headers=_UA)
                     img_res.raise_for_status()
                     raw = img_res.content
                     if not (0 < len(raw) <= _MAX_IMAGE_BYTES):

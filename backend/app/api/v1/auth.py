@@ -117,10 +117,21 @@ async def change_password(
     if not verify_password(body.current_password, user.password_hash):
         raise UnauthorizedError("Current password is incorrect")
     user.password_hash = hash_password(body.new_password)
+    # Revoke all active refresh tokens on password change
+    from app.models import RefreshToken
+    from datetime import datetime, timezone
+    from sqlalchemy import update, select
+    await db.execute(
+        update(RefreshToken)
+        .where(
+            RefreshToken.user_id == user.id,
+            RefreshToken.revoked_at.is_(None),
+        )
+        .values(revoked_at=datetime.now(timezone.utc))
+    )
     await db.commit()
 
 
-from sqlalchemy import select
 from app.core.security import create_reset_token, decode_reset_token
 from jose import JWTError
 import logging
@@ -136,7 +147,7 @@ async def forgot_password(
     user = result.scalars().first()
     if user:
         token = create_reset_token(body.email)
-        logger.info(f"Password reset requested for {body.email}. Token: {token}")
+        logger.info(f"Password reset requested for {body.email}")
         # In a real system, send this token via email
     return None
 
@@ -157,5 +168,17 @@ async def reset_password(
         raise UnauthorizedError("کاربر یافت نشد")
         
     user.password_hash = hash_password(body.new_password)
+    # Invalidate all active sessions/tokens for user
+    from app.models import RefreshToken
+    from datetime import datetime, timezone
+    from sqlalchemy import update
+    await db.execute(
+        update(RefreshToken)
+        .where(
+            RefreshToken.user_id == user.id,
+            RefreshToken.revoked_at.is_(None),
+        )
+        .values(revoked_at=datetime.now(timezone.utc))
+    )
     await db.commit()
     return None
