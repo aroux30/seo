@@ -46,8 +46,17 @@ def _run_async(coro):
         loop.close()
 
 
-@shared_task(name="app.workers.tasks.sync_website_gsc_task")
-def sync_website_gsc_task(website_id_str: str) -> dict:
+import httpx
+
+@shared_task(
+    name="app.workers.tasks.sync_website_gsc_task",
+    bind=True,
+    autoretry_for=(httpx.TimeoutException, httpx.NetworkError, ConnectionError),
+    retry_backoff=True,
+    retry_backoff_max=300,
+    max_retries=3,
+)
+def sync_website_gsc_task(self, website_id_str: str) -> dict:
     """Celery background worker task to sync Search Console performance data for a website.
 
     Websites without a connected (or active) Google account are a normal,

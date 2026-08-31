@@ -9,7 +9,21 @@ from app.models.automations import AutomationWorkflow, AutomationLog
 from app.models import Website
 from app.models.insights import Notification
 from app.core.exceptions import AppException
+from app.core.url_security import validate_external_url
+from app.config import get_settings
 from app.schemas.automations import AutomationTemplateRead
+
+settings = get_settings()
+
+
+def _validate_n8n_url(url: str) -> str:
+    if not url:
+        raise AppException(status_code=400, detail="آدرس وب‌هوک الزامی است.", error_type="invalid_webhook_url")
+    url = url.strip()
+    base = (settings.N8N_WEBHOOK_BASE_URL or "http://n8n:5678").rstrip("/")
+    if url.startswith(base) or url.startswith("http://n8n:5678"):
+        return url
+    return validate_external_url(url)
 
 
 def _notify_automation_failure(db, website: Website | None, workflow: AutomationWorkflow,
@@ -103,6 +117,8 @@ async def create_automation_workflow(
     if not website:
         raise AppException(status_code=404, detail="وب‌سایت یافت نشد.", error_type="website_not_found")
 
+    safe_webhook_url = _validate_n8n_url(n8n_webhook_url)
+
     workflow = AutomationWorkflow(
         website_id=website_id,
         name=name,
@@ -110,7 +126,7 @@ async def create_automation_workflow(
         template_key=template_key,
         trigger_type=trigger_type,
         cron_expression=cron_expression,
-        n8n_webhook_url=n8n_webhook_url,
+        n8n_webhook_url=safe_webhook_url,
         is_active=is_active,
         config_metadata=config_metadata or {},
     )
@@ -210,8 +226,9 @@ async def trigger_automation_workflow(
 
     # Call external n8n Webhook
     try:
+        safe_url = _validate_n8n_url(workflow.n8n_webhook_url)
         async with httpx.AsyncClient(timeout=15.0) as client:
-            res = await client.post(workflow.n8n_webhook_url, json=payload)
+            res = await client.post(safe_url, json=payload)
             elapsed_ms = int((time.time() - start_time) * 1000)
 
             if res.status_code < 400:

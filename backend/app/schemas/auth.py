@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ConfigDict, EmailStr
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from uuid import UUID
 from datetime import datetime
 from app.schemas.common import OrmBase
@@ -12,7 +12,7 @@ class LoginRequest(BaseModel):
 
 class RegisterRequest(BaseModel):
     email: EmailStr
-    password: str
+    password: str = Field(..., min_length=8, description="Minimum 8 characters")
     full_name: str
 
 
@@ -56,7 +56,7 @@ class UserUpdate(BaseModel):
 
 class PasswordChange(BaseModel):
     current_password: str
-    new_password: str
+    new_password: str = Field(..., min_length=8, description="Minimum 8 characters")
 
 
 class ForgotPasswordRequest(BaseModel):
@@ -65,5 +65,5 @@ class ForgotPasswordRequest(BaseModel):
 
 class ResetPasswordRequest(BaseModel):
     token: str
-    new_password: str
+    new_password: str = Field(..., min_length=8, description="Minimum 8 characters")
 

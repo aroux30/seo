@@ -105,20 +105,23 @@ async def refresh_google_token(db: AsyncSession, integration: OAuthIntegration) 
         "grant_type": "refresh_token",
     }
     
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        resp = await client.post(GOOGLE_TOKEN_URL, data=data)
-        if resp.status_code != 200:
-            raise AppException(401, f"Failed to refresh Google token: {resp.text}")
-        
-        tokens = resp.json()
-        new_access_token = tokens["access_token"]
-        expires_in = tokens.get("expires_in", 3600)
-        
-        integration.encrypted_access_token = encrypt_value(new_access_token)
-        integration.expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
-        await db.flush()
-        
-        return new_access_token
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(GOOGLE_TOKEN_URL, data=data)
+            if resp.status_code != 200:
+                raise AppException(401, f"Failed to refresh Google token: {resp.text}")
+            
+            tokens = resp.json()
+            new_access_token = tokens["access_token"]
+            expires_in = tokens.get("expires_in", 3600)
+            
+            integration.encrypted_access_token = encrypt_value(new_access_token)
+            integration.expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
+            await db.flush()
+            
+            return new_access_token
+    except httpx.RequestError as exc:
+        raise AppException(503, f"عدم امکان برقراری ارتباط با سرور گوگل: {str(exc)}", "google_network_error")
 
 async def fetch_gsc_data(site_url: str, access_token: str, start_date: str, end_date: str, dimensions: list[str], search_type: str = "web") -> list[dict]:
     api_url = f"https://www.googleapis.com/webmasters/v3/sites/{urllib.parse.quote(site_url, safe='')}/searchAnalytics/query"
@@ -131,15 +134,18 @@ async def fetch_gsc_data(site_url: str, access_token: str, start_date: str, end_
         "rowLimit": 2000
     }
     
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        resp = await client.post(api_url, headers=headers, json=payload)
-        
-        if resp.status_code == 401:
-            return {"error": "unauthorized"}
-        elif resp.status_code != 200:
-            raise AppException(500, f"Google API Error: {resp.text}")
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.post(api_url, headers=headers, json=payload)
             
-        return resp.json().get("rows", [])
+            if resp.status_code == 401:
+                return {"error": "unauthorized"}
+            elif resp.status_code != 200:
+                raise AppException(500, f"Google API Error: {resp.text}")
+                
+            return resp.json().get("rows", [])
+    except httpx.RequestError as exc:
+        raise AppException(503, f"خطای شبکه در دریافت اطلاعات سرچ کنسول: {str(exc)}", "google_network_error")
 
 async def sync_gsc_data(
     db: AsyncSession,

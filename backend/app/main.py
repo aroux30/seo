@@ -52,8 +52,8 @@ async def health_check():
     try:
         async with async_session_factory() as db:
             await db.execute(text("SELECT 1"))
-    except Exception as e:
-        db_status = f"error: {str(e)}"
+    except Exception:
+        db_status = "unavailable"
 
     is_healthy = db_status == "ok"
     return JSONResponse(
