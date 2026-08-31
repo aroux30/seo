@@ -144,7 +144,7 @@ async def generate_seo_strategy(
 
     # Schema guard — deliberately OUTSIDE the try above: a malformed (but
     # successfully received) LLM payload must surface as its own error, not be
-    # masked as "n8n workflow is down".
+    # masked as "AI provider is down".
     def _clamp_int(v, lo, hi, default):
         try:
             return max(lo, min(hi, int(v)))

@@ -32,7 +32,7 @@ class Settings(BaseSettings):
     # Valid values: openai, anthropic, google, algorithmic_fallback
     DEFAULT_AI_PROVIDER: str = "algorithmic_fallback"
 
-    # n8n Webhooks
+    # n8n Webhooks (used by automations module only, NOT for content generation)
     N8N_WEBHOOK_BASE_URL: str = "http://n8n:5678"
     # Shared secret n8n must present on POST /automations/webhook-callback.
     # Empty means the callback endpoint is disabled (fail closed) rather than open.
