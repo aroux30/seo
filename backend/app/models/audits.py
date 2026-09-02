@@ -100,6 +100,10 @@ class SeoAuditIssue(BaseModel):
     description: Mapped[str] = mapped_column(Text, nullable=False)
     url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     recommendation: Mapped[str] = mapped_column(Text, nullable=False)
+    # Raw Lighthouse evidence: display_value, affected items (URLs/snippets),
+    # strategy and doc link. JSON so the UI can render exactly what Google
+    # produced without another request.
+    details: Mapped[dict] = mapped_column(JSONB, server_default="{}", nullable=False)
     is_resolved: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     # Relationships

@@ -158,6 +158,87 @@ def _extract_recommendation(audit_result: dict) -> str:
     return "برای راهنمای دقیق رفع این مشکل به مستندات Google Lighthouse مراجعه کنید."
 
 
+# Lighthouse audits surfaced as Core Web Vitals / performance metrics on the
+# audit page. id -> Persian label. Everything here is a numeric audit with a
+# displayValue, so the same extractor feeds all of them.
+_METRIC_AUDITS = {
+    "first-contentful-paint": "اولین رنگ‌آمیزی محتوا (FCP)",
+    "largest-contentful-paint": "بزرگ‌ترین رنگ‌آمیزی محتوا (LCP)",
+    "total-blocking-time": "زمان مسدودسازی کل (TBT)",
+    "cumulative-layout-shift": "جابجایی چیدمان تجمعی (CLS)",
+    "speed-index": "شاخص سرعت (Speed Index)",
+    "server-response-time": "زمان پاسخ سرور (TTFB)",
+    "interactive": "زمان تعاملی‌شدن (TTI)",
+}
+
+
+def _extract_metrics(audits_data: dict) -> dict:
+    """Pull the key performance metrics with their values, units and scores."""
+    metrics = {}
+    for audit_id, label in _METRIC_AUDITS.items():
+        a = audits_data.get(audit_id)
+        if not a:
+            continue
+        metrics[audit_id] = {
+            "label": label,
+            "display_value": a.get("displayValue", ""),
+            "value": a.get("numericValue"),
+            "score": a.get("score"),
+        }
+    return metrics
+
+
+def _extract_field_data(psi_payload: dict) -> dict | None:
+    """Real-user CrUX data (`loadingExperience`), when Google has enough visits."""
+    le = psi_payload.get("loadingExperience") or {}
+    if not le.get("metrics"):
+        return None
+    out = {"overall_category": le.get("overall_category", ""), "metrics": {}}
+    for mid, m in le["metrics"].items():
+        out["metrics"][mid] = {
+            "label": m.get("label", mid),
+            "display_value": m.get("displayValue", ""),
+            "percentile": m.get("percentile"),
+            "category": m.get("category", ""),
+        }
+    return out
+
+
+def _extract_issue_details(audit_result: dict, strategy: str) -> dict:
+    """Compact but complete evidence for one failed audit, stored on the issue."""
+    details = audit_result.get("details", {}) or {}
+    items = []
+    for it in (details.get("items") or [])[:8]:
+        if not it:
+            continue
+        node = it.get("node") if isinstance(it.get("node"), dict) else {}
+        items.append({
+            "url": it.get("url", ""),
+            "source": it.get("source", {}).get("value", "") if isinstance(it.get("source"), dict) else "",
+            "snippet": (node.get("snippet") or "")[:220],
+            "explanation": (node.get("explanation") or "")[:220],
+            "subItems": [
+                {"item": (s.get("item") or "")[:200]}
+                for s in ((node.get("subItems") or {}).get("items") or [])[:3]
+                if isinstance(s, dict)
+            ],
+        })
+    return {
+        "strategy": strategy,
+        "display_value": audit_result.get("displayValue", ""),
+        "score": audit_result.get("score"),
+        "weight": audit_result.get("weight"),
+        "documentation": [
+            l.get("url") for l in (audit_result.get("guidelines", []) or [])
+            if isinstance(l, dict) and l.get("url")
+        ] or (
+            [l.get("url") for l in (audit_result.get("details", {}).get("links") or [])
+             if isinstance(l, dict) and l.get("url")]
+        ),
+        "items": items,
+    }
+
+
 def _parse_psi_result(data: dict, strategy: str, base_url: str) -> tuple[dict, list]:
     lighthouse = data.get("lighthouseResult", {})
     categories = lighthouse.get("categories", {})
@@ -212,15 +293,19 @@ def _parse_psi_result(data: dict, strategy: str, base_url: str) -> tuple[dict, l
             "description": description[:600] + "..." if len(description) > 600 else description,
             "url": base_url,
             "recommendation": _extract_recommendation(audit_result),
+            "details": _extract_issue_details(audit_result, strategy),
         })
 
-    return {
+    parsed = {
         "perf": perf,
         "seo": seo,
         "bp": bp,
         "acc": acc,
         "screenshot": screenshot,
-    }, parsed_issues
+        "metrics": _extract_metrics(audits_data),
+        "field_data": _extract_field_data(data),
+    }
+    return parsed, parsed_issues
 
 
 async def _run_direct_site_audit(base_url: str) -> tuple[dict, dict, list]:
@@ -548,6 +633,8 @@ async def run_website_audit(
     summary_data: dict = {}
 
     psi_url = "https://pagespeedonline.googleapis.com/pagespeedonline/v5/runPagespeed"
+    # Read at call time: the key can be added to the environment without this
+    # module having been re-imported.
     api_key = os.getenv("GOOGLE_PAGESPEED_API_KEY")
 
     def _build_params(strategy: str) -> dict:
@@ -561,9 +648,12 @@ async def run_website_audit(
         return p
 
     used_psi = False
+    psi_error: str | None = None
+    # A full Lighthouse run typically lands between 20s and 60s; the old 35s
+    # ceiling aborted healthy runs right into the silent fallback.
     try:
         # Try Google PSI API
-        async with httpx.AsyncClient(timeout=35.0, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=90.0, follow_redirects=True) as client:
             mobile_resp, desktop_resp = await asyncio.gather(
                 client.get(psi_url, params=_build_params("mobile")),
                 client.get(psi_url, params=_build_params("desktop")),
@@ -589,6 +679,12 @@ async def run_website_audit(
                 "best_practices": desktop_scores["bp"],
                 "accessibility": desktop_scores["acc"],
             }
+            if mobile_scores.get("metrics"):
+                summary_data["metrics"] = {"mobile": mobile_scores["metrics"]}
+                if desktop_scores.get("metrics"):
+                    summary_data["metrics"]["desktop"] = desktop_scores["metrics"]
+            if desktop_scores.get("field_data") or mobile_scores.get("field_data"):
+                summary_data["field_data"] = desktop_scores.get("field_data") or mobile_scores.get("field_data")
             if mobile_scores.get("screenshot"):
                 summary_data["final_screenshot"] = mobile_scores["screenshot"]
             if desktop_scores.get("screenshot"):
@@ -599,8 +695,17 @@ async def run_website_audit(
                 if iss["audit_id"] not in seen:
                     seen.add(iss["audit_id"])
                     issues.append(iss)
-    except Exception:
-        pass
+        else:
+            # Surface the real Google response instead of failing silently:
+            # a 429 here means the shared keyless quota ran out, 403 a bad key.
+            first = mobile_resp if mobile_resp.status_code != 200 else desktop_resp
+            try:
+                err = first.json().get("error", {}).get("message", first.text)
+            except Exception:
+                err = first.text
+            psi_error = f"HTTP {first.status_code}: {str(err)[:300]}"
+    except Exception as exc:
+        psi_error = f"{type(exc).__name__}: {exc}"
 
     # If Google PSI was not available or failed, use Direct Crawler Analyzer
     if not used_psi:
@@ -608,6 +713,10 @@ async def run_website_audit(
         summary_data["mobile"] = mobile_scores
         summary_data["desktop"] = desktop_scores
         issues = direct_issues
+        summary_data["engine"] = "direct"
+        summary_data["psi_error"] = psi_error
+    else:
+        summary_data["engine"] = "psi"
 
     # Primary scores stored on model (Mobile is default standard)
     mob_perf = summary_data["mobile"]["performance"]
@@ -638,6 +747,7 @@ async def run_website_audit(
                 description=iss["description"],
                 url=iss.get("url", website.base_url),
                 recommendation=iss["recommendation"],
+                details=iss.get("details") or {},
                 is_resolved=False,
             )
         )

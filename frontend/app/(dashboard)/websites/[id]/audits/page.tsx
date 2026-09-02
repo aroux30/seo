@@ -13,7 +13,46 @@ import {
   Activity,
   Smartphone,
   Monitor,
+  Gauge,
+  BookOpen,
 } from "lucide-react";
+
+// Persian labels for Lighthouse metric ids
+const METRIC_LABELS_FA: Record<string, string> = {
+  "first-contentful-paint": "FCP — اولین رنگ‌آمیزی",
+  "largest-contentful-paint": "LCP — بزرگ‌ترین رنگ‌آمیزی",
+  "total-blocking-time": "TBT — زمان مسدودسازی",
+  "cumulative-layout-shift": "CLS — جابجایی چیدمان",
+  "speed-index": "Speed Index — شاخص سرعت",
+  "server-response-time": "TTFB — زمان پاسخ سرور",
+  interactive: "TTI — زمان تعاملی‌شدن",
+};
+
+const FIELD_METRIC_LABELS_FA: Record<string, string> = {
+  LARGEST_CONTENTFUL_PAINT_MS: "LCP (واقعی)",
+  FIRST_INPUT_DELAY_MS: "FID (واقعی)",
+  CUMULATIVE_LAYOUT_SHIFT_SCORE: "CLS (واقعی)",
+  INTERACTION_TO_NEXT_PAINT: "INP (واقعی)",
+  FIRST_CONTENTFUL_PAINT_MS: "FCP (واقعی)",
+  EXPERIMENTAL_INTERACTION_TO_NEXT_PAINT: "INP (آزمایشی)",
+};
+
+// Score chip tone by 0-1 Lighthouse score
+function metricTone(score: unknown): string {
+  const s = typeof score === "number" ? score : null;
+  if (s === null) return "bg-white/5 text-muted-foreground border-white/10";
+  if (s >= 0.9) return "bg-emerald-500/10 text-emerald-300 border-emerald-500/25";
+  if (s >= 0.5) return "bg-amber-500/10 text-amber-300 border-amber-500/25";
+  return "bg-rose-500/10 text-rose-300 border-rose-500/25";
+}
+
+function fieldTone(category: string): string {
+  const c = (category || "").toUpperCase();
+  if (c.includes("GOOD")) return "bg-emerald-500/10 text-emerald-300 border-emerald-500/25";
+  if (c.includes("AVERAGE") || c.includes("IMPROVE")) return "bg-amber-500/10 text-amber-300 border-amber-500/25";
+  if (c.includes("POOR")) return "bg-rose-500/10 text-rose-300 border-rose-500/25";
+  return "bg-white/5 text-muted-foreground border-white/10";
+}
 
 // Score Gauge — Google PageSpeed Insights circular score gauge
 function ScoreGauge({ score, label }: { score: number; label: string }) {
@@ -330,6 +369,90 @@ export default function WebsiteAuditsPage() {
               </div>
             </div>
 
+            {/* Engine status banner — explains WHERE the numbers come from */}
+            {selectedAudit.summary?.engine === "direct" && (
+              <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-xs text-amber-200">
+                <div className="flex items-center gap-2 font-semibold">
+                  <AlertTriangle className="h-4 w-4 shrink-0" />
+                  نتایج زنده Google PageSpeed در این اجرا در دسترس نبود — ارزیابی توسط کراولر داخلی انجام شده است.
+                </div>
+                <p className="mt-1.5 leading-relaxed opacity-90">
+                  در این حالت اسکرین‌شات و متریک‌های لحظه‌ای گوگل (Core Web Vitals) تولید نمی‌شود؛ امتیازها تخمینی هستند. دلیل فنی:{" "}
+                  <span dir="ltr" className="font-mono text-[11px] opacity-80">
+                    {selectedAudit.summary?.psi_error || "unknown error"}
+                  </span>
+                  . لطفاً چند دقیقه بعد دوباره حسابرسی بگیرید.
+                </p>
+              </div>
+            )}
+
+            {/* Core Web Vitals metrics (lab data from Lighthouse) */}
+            {selectedAudit.summary?.metrics?.[activeStrategy] &&
+              Object.keys(selectedAudit.summary.metrics[activeStrategy]).length > 0 && (
+                <div className="rounded-2xl border border-white/10 bg-card p-6 shadow-xl">
+                  <div className="flex items-center gap-2 mb-1">
+                    <Gauge className="h-5 w-5 text-sky-400" />
+                    <h3 className="text-sm font-bold text-white">
+                      متریک‌های حیاتی وب (Core Web Vitals) — {activeStrategy === "mobile" ? "موبایل" : "دسکتاپ"}
+                    </h3>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground mb-4">
+                    مقادیر اندازه‌گیری‌شده توسط Google Lighthouse در همین اجرا، با رنگ وضعیت هر متریک
+                  </p>
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+                    {Object.entries(selectedAudit.summary.metrics[activeStrategy] as Record<string, any>).map(
+                      ([mid, m]) => (
+                        <div
+                          key={mid}
+                          className={`rounded-xl border p-3 ${metricTone(m?.score)}`}
+                        >
+                          <div className="text-[10px] font-medium opacity-80">
+                            {METRIC_LABELS_FA[mid] || mid}
+                          </div>
+                          <div className="mt-1 text-lg font-black" dir="ltr">
+                            {m?.display_value || "—"}
+                          </div>
+                        </div>
+                      )
+                    )}
+                  </div>
+                </div>
+              )}
+
+            {/* Real-user field data (Chrome UX Report) */}
+            {selectedAudit.summary?.field_data?.metrics &&
+              Object.keys(selectedAudit.summary.field_data.metrics).length > 0 && (
+                <div className="rounded-2xl border border-sky-500/20 bg-sky-500/[0.04] p-6 shadow-xl">
+                  <h3 className="text-sm font-bold text-white">داده کاربران واقعی (Chrome UX Report)</h3>
+                  <p className="text-[11px] text-muted-foreground mt-0.5 mb-4">
+                    تجربه واقعی بازدیدکنندگان در ۲۸ روز گذشته طبق گزارش گوگل
+                    {selectedAudit.summary.field_data.overall_category && (
+                      <span
+                        className={`mr-2 inline-block rounded-full border px-2 py-0.5 font-semibold ${fieldTone(
+                          selectedAudit.summary.field_data.overall_category
+                        )}`}
+                      >
+                        وضعیت کلی: {selectedAudit.summary.field_data.overall_category}
+                      </span>
+                    )}
+                  </p>
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+                    {Object.entries(selectedAudit.summary.field_data.metrics as Record<string, any>).map(
+                      ([mid, m]) => (
+                        <div key={mid} className={`rounded-xl border p-3 ${fieldTone(m?.category)}`}>
+                          <div className="text-[10px] font-medium opacity-80">
+                            {FIELD_METRIC_LABELS_FA[mid] || m?.label || mid}
+                          </div>
+                          <div className="mt-1 text-lg font-black" dir="ltr">
+                            {m?.display_value || "—"}
+                          </div>
+                        </div>
+                      )
+                    )}
+                  </div>
+                </div>
+              )}
+
             {/* Screenshot Section */}
             {screenshot && (
               <div className="rounded-2xl border border-white/10 bg-card p-6 shadow-xl">
@@ -436,6 +559,75 @@ export default function WebsiteAuditsPage() {
                           <p className="text-xs text-muted-foreground leading-relaxed">
                             {issue.description}
                           </p>
+
+                          {/* Measured value chip */}
+                          {issue.details?.display_value && (
+                            <div className="inline-flex w-fit items-center gap-1.5 rounded-lg border border-sky-500/25 bg-sky-500/10 px-2.5 py-1 text-[11px] font-semibold text-sky-300" dir="auto">
+                              مقدار اندازه‌گیری‌شده گوگل:
+                              <span dir="ltr" className="font-bold">{issue.details.display_value}</span>
+                              {issue.details?.strategy && (
+                                <span className="rounded bg-white/10 px-1.5 py-0.5 text-[9px] font-medium">
+                                  {issue.details.strategy === "mobile" ? "موبایل" : "دسکتاپ"}
+                                </span>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Affected elements / URLs straight from Lighthouse */}
+                          {Array.isArray(issue.details?.items) && issue.details.items.length > 0 && (
+                            <div className="mt-1 rounded-lg border border-white/10 bg-black/30 p-3">
+                              <span className="text-[11px] font-semibold text-slate-200">
+                                المان‌ها / منابع مشکل‌دار ({issue.details.items.length}):
+                              </span>
+                              <ul className="mt-1.5 space-y-1.5">
+                                {issue.details.items.map((it: any, idx: number) => (
+                                  <li key={idx} className="text-[11px] leading-relaxed text-slate-300">
+                                    {it?.url ? (
+                                      <a
+                                        href={it.url}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        dir="ltr"
+                                        className="block truncate text-blue-400 hover:underline"
+                                      >
+                                        {it.url}
+                                      </a>
+                                    ) : null}
+                                    {it?.snippet && (
+                                      <span dir="ltr" className="mt-0.5 block truncate font-mono text-[10px] text-amber-300/80">
+                                        {it.snippet}
+                                      </span>
+                                    )}
+                                    {it?.explanation && (
+                                      <span dir="ltr" className="mt-0.5 block truncate text-[10px] text-slate-400">
+                                        {it.explanation}
+                                      </span>
+                                    )}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+
+                          {/* Documentation links from Google */}
+                          {Array.isArray(issue.details?.documentation) && issue.details.documentation.length > 0 && (
+                            <div className="flex flex-wrap items-center gap-2">
+                              {issue.details.documentation.slice(0, 2).map((doc: string, idx: number) => (
+                                <a
+                                  key={idx}
+                                  href={doc}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  dir="ltr"
+                                  className="inline-flex items-center gap-1 rounded-lg border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] text-slate-300 transition hover:border-white/25 hover:text-white"
+                                >
+                                  <BookOpen className="h-3 w-3" />
+                                  مستندات گوگل
+                                  <ExternalLink className="h-2.5 w-2.5" />
+                                </a>
+                              ))}
+                            </div>
+                          )}
 
                           {/* Recommendation Box */}
                           <div className="mt-2.5 rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3 text-xs text-emerald-300">

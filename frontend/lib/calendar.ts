@@ -95,6 +95,8 @@ export interface CalendarAutoScheduleResult {
   website_id: string;
   created: number;
   skipped: number;
+  /** Open opportunities still without a slot after this run. */
+  remaining_open: number;
   scheduled_through: string | null;
 }
 

@@ -43,6 +43,17 @@ export default function WebsiteAnalyticsPage() {
   const [searchTerm, setSearchTerm] = useState<string>("");
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
 
+  // Labels for sync status messages, keyed by the API search type.
+  const SEARCH_TYPE_FA: Record<string, string> = {
+    web: "وب (Web)",
+    image: "تصاویر (Image)",
+    video: "ویدیو (Video)",
+    news: "اخبار (News)",
+    discover: "کشف (Discover)",
+    googleNews: "اخبار گوگل (Google News)",
+    generative_ai: "هوش مصنوعی تولیدی (Generative AI)",
+  };
+
   const getDaysFromRange = (range: string) => {
     switch(range) {
       case "24h": return 1;
@@ -72,17 +83,19 @@ export default function WebsiteAnalyticsPage() {
     loadData();
   }, [websiteId, sortBy]);
 
-  const loadData = async (overrideDays?: number) => {
+  const loadData = async (overrideDays?: number, overrideType?: string) => {
     setLoading(true);
     const currentDays = overrideDays ?? getDaysFromRange(dateRange);
+    const currentType = overrideType ?? searchType;
     try {
+      const typeParam = `&search_type=${currentType}`;
       const [ov, qs, ps, cs, ds, dts] = await Promise.all([
-        api.get(`/analytics/gsc/overview/${websiteId}?days=${currentDays}`),
-        api.get(`/analytics/gsc/queries/${websiteId}?sort_by=${sortBy}&limit=100`),
-        api.get(`/analytics/gsc/pages/${websiteId}?sort_by=${sortBy}&limit=100`),
-        api.get(`/analytics/gsc/countries/${websiteId}?sort_by=${sortBy}&limit=100`),
-        api.get(`/analytics/gsc/devices/${websiteId}?sort_by=${sortBy}&limit=100`),
-        api.get(`/analytics/gsc/dates/${websiteId}?days=${currentDays}&sort_by=${sortBy === "date" ? "date" : sortBy}&limit=365`),
+        api.get(`/analytics/gsc/overview/${websiteId}?days=${currentDays}${typeParam}`),
+        api.get(`/analytics/gsc/queries/${websiteId}?sort_by=${sortBy}&limit=100${typeParam}`),
+        api.get(`/analytics/gsc/pages/${websiteId}?sort_by=${sortBy}&limit=100${typeParam}`),
+        api.get(`/analytics/gsc/countries/${websiteId}?sort_by=${sortBy}&limit=100${typeParam}`),
+        api.get(`/analytics/gsc/devices/${websiteId}?sort_by=${sortBy}&limit=100${typeParam}`),
+        api.get(`/analytics/gsc/dates/${websiteId}?days=${currentDays}&sort_by=${sortBy === "date" ? "date" : sortBy}&limit=365${typeParam}`),
       ]);
       setOverview(ov || { total_clicks: 0, total_impressions: 0, avg_ctr: 0, avg_position: 0 });
       setQueries(qs || []);
@@ -100,9 +113,9 @@ export default function WebsiteAnalyticsPage() {
   const handleFilterChange = async (newDateRange: string, newSearchType: string) => {
     setDateRange(newDateRange);
     setSearchType(newSearchType);
-    
+
     const days = getDaysFromRange(newDateRange);
-    
+
     setSyncing(true);
     setSyncMessage(null);
     api.clearCache();
@@ -113,12 +126,16 @@ export default function WebsiteAnalyticsPage() {
       const pCount = info?.pages_added ?? 0;
       const dtCount = info?.dates_added ?? 0;
       if (qCount === 0 && pCount === 0 && dtCount === 0 && newSearchType !== "web") {
-        setSyncMessage(`برای نوع جستجوی «${newSearchType === "image" ? "تصاویر" : newSearchType === "video" ? "ویدیو" : "اخبار"}» هیچ داده‌ای در گوگل سرچ کنسول یافت نشد. برای مشاهده آمار اصلی، لطفاً نوع جستجو را روی «وب (Web)» قرار دهید.`);
+        const typeFa = SEARCH_TYPE_FA[newSearchType] || newSearchType;
+        const extra = newSearchType === "generative_ai"
+          ? " گزارش «هوش مصنوعی تولیدی» گوگل تازه معرفی شده و هنوز برای همه سایت‌ها از طریق API در دسترس نیست؛ وقتی گوگل داده این گزارش را برای دامنه شما منتشر کند، همین‌جا نمایش داده می‌شود."
+          : " اگر مطمئن هستید سرچ کنسول برای این نوع جستجو داده دارد، چند دقیقه بعد دوباره همگام‌سازی کنید.";
+        setSyncMessage(`برای نوع جستجوی «${typeFa}» هیچ داده‌ای در گوگل سرچ کنسول یافت نشد.${extra}`);
       } else {
-        setSyncMessage(`داده‌های جدید با فیلترهای انتخابی همگام‌سازی شد (${qCount} کلمه کلیدی، ${pCount} صفحه، ${dtCount} روز).`);
+        setSyncMessage(`داده‌های «${SEARCH_TYPE_FA[newSearchType] || newSearchType}» برای بازه انتخابی همگام‌سازی شد (${qCount} کلمه کلیدی، ${pCount} صفحه، ${dtCount} روز).`);
       }
       api.clearCache();
-      await loadData(days);
+      await loadData(days, newSearchType);
     } catch (err: any) {
       setSyncMessage(err?.message || "خطا در اعمال فیلترها. لطفاً اتصال اکانت را بررسی کنید.");
     } finally {
@@ -138,7 +155,11 @@ export default function WebsiteAnalyticsPage() {
       const pCount = info?.pages_added ?? 0;
       const dtCount = info?.dates_added ?? 0;
       if (qCount === 0 && pCount === 0 && dtCount === 0 && searchType !== "web") {
-        setSyncMessage(`همگام‌سازی انجام شد، اما برای نوع جستجوی «${searchType === "image" ? "تصاویر" : searchType === "video" ? "ویدیو" : "اخبار"}» هیچ رکوردی در سرچ کنسول وجود ندارد. لطفاً نوع جستجو را به «وب (Web)» تغییر دهید.`);
+        const typeFa = SEARCH_TYPE_FA[searchType] || searchType;
+        const extra = searchType === "generative_ai"
+          ? " گزارش «هوش مصنوعی تولیدی» گوگل تازه معرفی شده و هنوز برای همه سایت‌ها از طریق API در دسترس نیست؛ وقتی گوگل داده این گزارش را برای دامنه شما منتشر کند، همین‌جا نمایش داده می‌شود."
+          : " اگر مطمئن هستید سرچ کنسول برای این نوع جستجو داده دارد، چند دقیقه بعد دوباره تلاش کنید.";
+        setSyncMessage(`همگام‌سازی انجام شد، اما برای نوع جستجوی «${typeFa}» هیچ رکوردی در سرچ کنسول وجود ندارد.${extra}`);
       } else {
         setSyncMessage(`داده‌های سرچ کنسول با موفقیت دریافت و همگام‌سازی شد (${qCount} کلمه کلیدی، ${pCount} صفحه، ${dtCount} روز).`);
       }
@@ -240,6 +261,9 @@ export default function WebsiteAnalyticsPage() {
               <option value="image" className="bg-card text-white">تصاویر (Image)</option>
               <option value="video" className="bg-card text-white">ویدیو (Video)</option>
               <option value="news" className="bg-card text-white">اخبار (News)</option>
+              <option value="discover" className="bg-card text-white">کشف (Discover)</option>
+              <option value="googleNews" className="bg-card text-white">اخبار گوگل (Google News)</option>
+              <option value="generative_ai" className="bg-card text-white">هوش مصنوعی تولیدی (Generative AI)</option>
             </select>
           </div>
         </div>

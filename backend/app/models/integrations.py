@@ -66,6 +66,9 @@ class GscQuery(BaseModel):
     ctr: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     position: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     date_metric: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    # GSC search type this snapshot belongs to (web/image/video/news/discover/
+    # googleNews). Rows of different types coexist; the analytics UI filters on it.
+    search_type: Mapped[str] = mapped_column(String(20), default="web", server_default="web", nullable=False)
 
     __table_args__ = (
         Index("idx_gsc_query_site_date", "website_id", "date_metric"),
@@ -88,6 +91,7 @@ class GscPage(BaseModel):
     ctr: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     position: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     date_metric: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    search_type: Mapped[str] = mapped_column(String(20), default="web", server_default="web", nullable=False)
 
     __table_args__ = (
         Index("idx_gsc_page_site_date", "website_id", "date_metric"),
@@ -151,6 +155,7 @@ class GscCountry(BaseModel):
     ctr: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     position: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     date_metric: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    search_type: Mapped[str] = mapped_column(String(20), default="web", server_default="web", nullable=False)
 
     __table_args__ = (
         Index("idx_gsc_country_site_date", "website_id", "date_metric"),
@@ -173,6 +178,7 @@ class GscDevice(BaseModel):
     ctr: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     position: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     date_metric: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    search_type: Mapped[str] = mapped_column(String(20), default="web", server_default="web", nullable=False)
 
     __table_args__ = (
         Index("idx_gsc_device_site_date", "website_id", "date_metric"),
@@ -194,8 +200,9 @@ class GscDate(BaseModel):
     ctr: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     position: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     date_metric: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    search_type: Mapped[str] = mapped_column(String(20), default="web", server_default="web", nullable=False)
 
     __table_args__ = (
         Index("idx_gsc_date_site_date", "website_id", "date_metric"),
-        UniqueConstraint("website_id", "date_metric", name="uq_gsc_dates_site_date"),
+        UniqueConstraint("website_id", "date_metric", "search_type", name="uq_gsc_dates_site_date_type"),
     )

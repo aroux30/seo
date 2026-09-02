@@ -15,6 +15,8 @@ class SeoAuditIssueRead(BaseModel):
     description: str
     url: str | None = None
     recommendation: str
+    # Raw Lighthouse evidence (display_value, affected items, doc links).
+    details: dict | None = Field(default=None)
     is_resolved: bool
     created_at: datetime
 

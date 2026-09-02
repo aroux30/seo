@@ -15,10 +15,12 @@ Three things here are deliberate and easy to get wrong later:
   2026-08-14T21:00Z belongs to the 15th for a Tehran user, not the 14th. Every
   bucket boundary below is built in `CALENDAR_TZ` and only then converted to
   UTC for the query, so the month view never off-by-ones at the edges.
-* **The auto-scheduler is idempotent on `opportunity_id`.** Re-running it must
-  not double-book the same opportunity, so it matches on that column rather
-  than on `source == "ai_auto"` (a human may edit an AI slot, and that must not
-  make it eligible again).
+* **The auto-scheduler is idempotent on the finding.** Re-running it must
+  not double-book the same opportunity: it skips an opportunity that already
+  has a slot (by `opportunity_id`) *and* any opportunity whose `fingerprint`
+  was ever scheduled, so a re-detected finding — new row, same subject — stays
+  single-booked. It also never re-proposes a slot the user deleted; a run
+  schedules at most `max_entries` new slots and reports what it skipped.
 
 Scoping: every function takes `organization_id` and raises `NotFoundError`
 (404) on a cross-tenant id, never `ForbiddenError`, so a UUID cannot be used as
@@ -669,13 +671,17 @@ async def auto_schedule_from_opportunities(
 ) -> dict:
     """Turn the highest-impact open opportunities into planned slots.
 
-    Idempotent on `opportunity_id`: an opportunity that already has a calendar
-    entry — including a soft-deleted one — is skipped. Matching on that column
-    rather than on `source == "ai_auto"` is deliberate, because a human editing an
-    AI-created slot must not make the opportunity eligible again.
+    Idempotent on the *finding*, not the row: a slot blocks both its
+    `opportunity_id` and that opportunity's `fingerprint` (type + subject hash),
+    so a re-detected finding — new row, same subject — is never re-scheduled.
+    Includes soft-deleted entries on purpose: a plan the user deleted stays
+    declined instead of being re-proposed on the next click.
 
     Slots are spaced `day_step` days apart at 10:00 Tehran time so a burst of
     detections becomes a publishing cadence instead of twenty posts on one day.
+    Each run schedules at most `max_entries` opportunities; the ones it could
+    not (or did not) schedule are reported back so the caller can show the user
+    exactly why nothing was added.
     """
     await _assert_website_in_org(db, website_id, org_id)
     if max_entries < 1:
@@ -685,7 +691,7 @@ async def auto_schedule_from_opportunities(
 
     # Deliberately includes soft-deleted rows: a declined plan should stay
     # declined rather than being re-proposed on the next run.
-    taken = set(
+    taken_ids: set[UUID] = set(
         (
             await db.execute(
                 select(ContentCalendarEntry.opportunity_id).where(
@@ -697,6 +703,16 @@ async def auto_schedule_from_opportunities(
         .scalars()
         .all()
     )
+
+    # Fingerprints of everything ever scheduled on this site. Matching on the
+    # fingerprint (not the row id) is what stops the same finding from coming
+    # back after the detector re-creates its Opportunity row with a new id.
+    taken_fingerprints: set[str] = set()
+    if taken_ids:
+        fp_rows = await db.execute(
+            select(Opportunity.fingerprint).where(Opportunity.id.in_(taken_ids))
+        )
+        taken_fingerprints = {fp for fp in fp_rows.scalars().all() if fp}
 
     # Opportunity is a plain BaseModel with no SoftDeleteMixin: dismissal is
     # recorded as status/dismissed_at, so there is no deleted_at to filter on.
@@ -710,14 +726,26 @@ async def auto_schedule_from_opportunities(
             Opportunity.priority_score.desc(),
             Opportunity.created_at.desc(),
         )
-        # Over-fetch: some of these will be filtered out as already-planned.
-        .limit(max_entries * 4)
     )
+    open_opps = (await db.execute(opp_stmt)).scalars().all()
+
     candidates = [
         opp
-        for opp in (await db.execute(opp_stmt)).scalars().all()
-        if opp.id not in taken and (opp.priority_score or 0) >= min_priority_score
+        for opp in open_opps
+        if opp.id not in taken_ids
+        and (opp.fingerprint or "") not in taken_fingerprints
+        and (opp.priority_score or 0) >= min_priority_score
     ][:max_entries]
+    # Every open opportunity still without a slot after this run — reported so
+    # the UI can tell "nothing to do" apart from "silently dropped".
+    remaining_open = len(
+        [
+            opp
+            for opp in open_opps
+            if opp.id not in taken_ids and (opp.fingerprint or "") not in taken_fingerprints
+        ]
+    )
+    skipped_existing = len(open_opps) - remaining_open
 
     # Default start is tomorrow local: scheduling the first slot for today would
     # hand someone a deadline that has already partly elapsed.
@@ -753,6 +781,7 @@ async def auto_schedule_from_opportunities(
             notes=opp.recommended_action,
             details={
                 "opportunity_type": opp.opportunity_type,
+                "opportunity_fingerprint": opp.fingerprint,
                 "priority_score": opp.priority_score,
                 "estimated_traffic_gain": opp.estimated_traffic_gain,
                 "page_url": opp.page_url,
@@ -772,7 +801,8 @@ async def auto_schedule_from_opportunities(
     await db.flush()
     return {
         "created": len(created),
-        "skipped_existing": len(taken),
+        "skipped_existing": skipped_existing,
+        "remaining_open": remaining_open,
         "entries": created,
     }
 

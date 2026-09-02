@@ -169,6 +169,9 @@ class CalendarAutoScheduleResult(BaseModel):
     website_id: UUID
     created: int
     skipped: int
+    # Open opportunities still without a slot after this run (they stay for the
+    # next click - the scheduler adds at most max_entries per call).
+    remaining_open: int = 0
     scheduled_through: datetime | None = None
 
 

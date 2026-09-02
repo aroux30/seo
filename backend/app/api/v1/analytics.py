@@ -18,11 +18,12 @@ router = APIRouter(prefix="/analytics", tags=["analytics"])
 async def get_overview(
     website_id: UUID,
     days: int = Query(30, ge=1, le=500),
+    search_type: str = Query("web"),
     member: OrganizationMember = Depends(require_role("viewer")),
     db: AsyncSession = Depends(get_db),
 ):
     await assert_website_in_org(db, website_id, member.organization_id)
-    overview = await get_gsc_overview(db, website_id, days=days)
+    overview = await get_gsc_overview(db, website_id, days=days, search_type=search_type)
     return {"data": overview}
 
 
@@ -31,11 +32,12 @@ async def get_queries(
     website_id: UUID,
     limit: int = Query(100, ge=1, le=500),
     sort_by: str = Query("clicks"),
+    search_type: str = Query("web"),
     member: OrganizationMember = Depends(require_role("viewer")),
     db: AsyncSession = Depends(get_db),
 ):
     await assert_website_in_org(db, website_id, member.organization_id)
-    queries = await list_gsc_queries(db, website_id, limit=limit, sort_by=sort_by)
+    queries = await list_gsc_queries(db, website_id, limit=limit, sort_by=sort_by, search_type=search_type)
     return {"data": [GscQueryRead.model_validate(q) for q in queries]}
 
 
@@ -44,11 +46,12 @@ async def get_pages(
     website_id: UUID,
     limit: int = Query(100, ge=1, le=500),
     sort_by: str = Query("clicks"),
+    search_type: str = Query("web"),
     member: OrganizationMember = Depends(require_role("viewer")),
     db: AsyncSession = Depends(get_db),
 ):
     await assert_website_in_org(db, website_id, member.organization_id)
-    pages = await list_gsc_pages(db, website_id, limit=limit, sort_by=sort_by)
+    pages = await list_gsc_pages(db, website_id, limit=limit, sort_by=sort_by, search_type=search_type)
     return {"data": [GscPageRead.model_validate(p) for p in pages]}
 
 
@@ -57,11 +60,12 @@ async def get_countries(
     website_id: UUID,
     limit: int = Query(100, ge=1, le=500),
     sort_by: str = Query("clicks"),
+    search_type: str = Query("web"),
     member: OrganizationMember = Depends(require_role("viewer")),
     db: AsyncSession = Depends(get_db),
 ):
     await assert_website_in_org(db, website_id, member.organization_id)
-    countries = await list_gsc_countries(db, website_id, limit=limit, sort_by=sort_by)
+    countries = await list_gsc_countries(db, website_id, limit=limit, sort_by=sort_by, search_type=search_type)
     return {"data": [GscCountryRead.model_validate(c) for c in countries]}
 
 
@@ -70,11 +74,12 @@ async def get_devices(
     website_id: UUID,
     limit: int = Query(100, ge=1, le=500),
     sort_by: str = Query("clicks"),
+    search_type: str = Query("web"),
     member: OrganizationMember = Depends(require_role("viewer")),
     db: AsyncSession = Depends(get_db),
 ):
     await assert_website_in_org(db, website_id, member.organization_id)
-    devices = await list_gsc_devices(db, website_id, limit=limit, sort_by=sort_by)
+    devices = await list_gsc_devices(db, website_id, limit=limit, sort_by=sort_by, search_type=search_type)
     return {"data": [GscDeviceRead.model_validate(d) for d in devices]}
 
 
@@ -84,9 +89,10 @@ async def get_dates(
     days: int | None = Query(None, ge=1, le=500),
     limit: int = Query(365, ge=1, le=500),
     sort_by: str = Query("date"),
+    search_type: str = Query("web"),
     member: OrganizationMember = Depends(require_role("viewer")),
     db: AsyncSession = Depends(get_db),
 ):
     await assert_website_in_org(db, website_id, member.organization_id)
-    dates = await list_gsc_dates(db, website_id, limit=limit, sort_by=sort_by, days=days)
+    dates = await list_gsc_dates(db, website_id, limit=limit, sort_by=sort_by, days=days, search_type=search_type)
     return {"data": [GscDateRead.model_validate(d) for d in dates]}

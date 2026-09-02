@@ -244,6 +244,7 @@ async def auto_schedule_endpoint(
             website_id=website_id,
             created=result.get("created", 0),
             skipped=result.get("skipped_existing", 0),
+            remaining_open=result.get("remaining_open", 0),
             scheduled_through=max(scheduled_dates) if scheduled_dates else None,
         )
     }

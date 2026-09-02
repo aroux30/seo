@@ -15,6 +15,13 @@ GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GSC_SCOPE = "https://www.googleapis.com/auth/webmasters.readonly"
 
+# Search types the GSC searchAnalytics API accepts for `type` today. Google's
+# UI has a newer "Generative AI" report (June 2026) but the API does not expose
+# it yet — it is kept in this list so the UI can offer it and the sync degrades
+# to "no data" instead of failing, and starts returning data the day Google
+# enables the value.
+GSC_SEARCH_TYPES = ("web", "image", "video", "news", "discover", "googleNews", "generative_ai")
+
 
 def get_gsc_auth_url(website_id: UUID, state: str) -> str:
     """Generate Google OAuth 2.0 authorization URL for Search Console API.
@@ -134,19 +141,29 @@ async def fetch_gsc_data(site_url: str, access_token: str, start_date: str, end_
         "dataState": "all",
         "rowLimit": 2000
     }
-    
+
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
             resp = await client.post(api_url, headers=headers, json=payload)
-            
+
             if resp.status_code == 401:
                 return {"error": "unauthorized"}
+            elif resp.status_code == 400:
+                # 400 on a search type the property/type combination has no data
+                # for (or an enum value Google has not enabled yet, e.g.
+                # generative_ai) means "nothing to fetch", not "sync failed".
+                return {"error": "bad_request"}
             elif resp.status_code != 200:
                 raise AppException(500, f"Google API Error: {resp.text}")
-                
+
             return resp.json().get("rows", [])
     except httpx.RequestError as exc:
         raise AppException(503, f"خطای شبکه در دریافت اطلاعات سرچ کنسول: {str(exc)}", "google_network_error")
+
+
+def _rows(data) -> list:
+    """Normalize a fetch result: 401/bad_request markers become empty lists."""
+    return data if isinstance(data, list) else []
 
 async def sync_gsc_data(
     db: AsyncSession,
@@ -155,9 +172,14 @@ async def sync_gsc_data(
     search_type: str = "web",
 ) -> dict:
     """
-    Sync GSC performance metrics (queries, pages, countries, devices).
+    Sync GSC performance metrics (queries, pages, countries, devices) for one
+    search type. Each type is stored under its own `search_type` value, so
+    syncing `image` no longer wipes `web` data.
     Requires a valid Google OAuth integration.
     """
+    if search_type not in GSC_SEARCH_TYPES:
+        raise AppException(400, f"نوع جستجوی نامعتبر: {search_type}")
+
     stmt = select(Website).where(Website.id == website_id)
     result = await db.execute(stmt)
     website = result.scalar_one_or_none()
@@ -169,15 +191,15 @@ async def sync_gsc_data(
         raise AppException(400, "Google Search Console integration not found. Please connect your Google account first.")
 
     access_token = decrypt_value(integration.encrypted_access_token)
-    
+
     today = date.today()
     start_date = (today - timedelta(days=days)).isoformat()
     end_date = today.isoformat()
-    
+
     # Try different combinations for site_url in case GSC property is registered differently
     base_domain = website.base_url.replace("https://", "").replace("http://", "").strip("/")
     root_domain = base_domain[4:] if base_domain.startswith("www.") else base_domain
-    
+
     site_url_variations = []
     # Always prioritize the exact URL the user provided
     site_url_variations.append(website.base_url)
@@ -193,22 +215,19 @@ async def sync_gsc_data(
             v = f"{proto}{d}/"
             if v not in site_url_variations:
                 site_url_variations.append(v)
-    
-    queries_data = None
-    pages_data = None
-    countries_data = None
-    devices_data = None
-    dates_data = None
-    successful_url = website.base_url
-    
 
+    # Probe the property with type="web" (always a valid enum value): a 200
+    # proves the OAuth user can read the property, independent of whether the
+    # requested search type carries any rows.
+    queries_data = None
+    successful_url = website.base_url
     for test_url in site_url_variations:
         try:
-            q_data = await fetch_gsc_data(test_url, access_token, start_date, end_date, ["query"], search_type)
+            q_data = await fetch_gsc_data(test_url, access_token, start_date, end_date, ["query"], "web")
             if isinstance(q_data, dict) and q_data.get("error") == "unauthorized":
                 access_token = await refresh_google_token(db, integration)
-                q_data = await fetch_gsc_data(test_url, access_token, start_date, end_date, ["query"], search_type)
-                
+                q_data = await fetch_gsc_data(test_url, access_token, start_date, end_date, ["query"], "web")
+
             if isinstance(q_data, list):
                 # We found a valid property (returns 200 OK), stop searching.
                 # Use it immediately even if it has no data right now, to prevent
@@ -218,36 +237,46 @@ async def sync_gsc_data(
                 break
         except AppException:
             continue
-        
-    if isinstance(queries_data, list):
-        # Now fetch the rest of the dimensions using the successful URL
-        pages_data = await fetch_gsc_data(successful_url, access_token, start_date, end_date, ["page"], search_type)
-        countries_data = await fetch_gsc_data(successful_url, access_token, start_date, end_date, ["country"], search_type)
-        devices_data = await fetch_gsc_data(successful_url, access_token, start_date, end_date, ["device"], search_type)
-        dates_data = await fetch_gsc_data(successful_url, access_token, start_date, end_date, ["date"], search_type)
-            
-    if not isinstance(queries_data, list) or not isinstance(pages_data, list):
+
+    if not isinstance(queries_data, list):
         raise AppException(403, f"Failed to access Google Search Console data for {website.base_url}. Ensure the property exists and the email has access.")
-    
-    # Clear old data for the timeframe
+
+    # Now fetch every dimension for the requested search type. A 400 here only
+    # means this type has no data / is not enabled for the property yet.
+    queries_data = await fetch_gsc_data(successful_url, access_token, start_date, end_date, ["query"], search_type)
+    if isinstance(queries_data, dict) and queries_data.get("error") == "unauthorized":
+        access_token = await refresh_google_token(db, integration)
+        queries_data = await fetch_gsc_data(successful_url, access_token, start_date, end_date, ["query"], search_type)
+    queries_data = _rows(queries_data)
+    pages_data = _rows(await fetch_gsc_data(successful_url, access_token, start_date, end_date, ["page"], search_type))
+    countries_data = _rows(await fetch_gsc_data(successful_url, access_token, start_date, end_date, ["country"], search_type))
+    devices_data = _rows(await fetch_gsc_data(successful_url, access_token, start_date, end_date, ["device"], search_type))
+    dates_data = _rows(await fetch_gsc_data(successful_url, access_token, start_date, end_date, ["date"], search_type))
+
+    # Clear old data for this search type only, so other types survive the sync.
     await db.execute(GscQuery.__table__.delete().where(
-        GscQuery.website_id == website_id, GscQuery.date_metric >= (today - timedelta(days=days))
+        GscQuery.website_id == website_id, GscQuery.search_type == search_type,
+        GscQuery.date_metric >= (today - timedelta(days=days))
     ))
     await db.execute(GscPage.__table__.delete().where(
-        GscPage.website_id == website_id, GscPage.date_metric >= (today - timedelta(days=days))
+        GscPage.website_id == website_id, GscPage.search_type == search_type,
+        GscPage.date_metric >= (today - timedelta(days=days))
     ))
     await db.execute(GscCountry.__table__.delete().where(
-        GscCountry.website_id == website_id, GscCountry.date_metric >= (today - timedelta(days=days))
+        GscCountry.website_id == website_id, GscCountry.search_type == search_type,
+        GscCountry.date_metric >= (today - timedelta(days=days))
     ))
     await db.execute(GscDevice.__table__.delete().where(
-        GscDevice.website_id == website_id, GscDevice.date_metric >= (today - timedelta(days=days))
+        GscDevice.website_id == website_id, GscDevice.search_type == search_type,
+        GscDevice.date_metric >= (today - timedelta(days=days))
     ))
     await db.execute(GscDate.__table__.delete().where(
-        GscDate.website_id == website_id, GscDate.date_metric >= (today - timedelta(days=days))
+        GscDate.website_id == website_id, GscDate.search_type == search_type,
+        GscDate.date_metric >= (today - timedelta(days=days))
     ))
-    
+
     q_objects, p_objects, c_objects, d_objects, dt_objects = [], [], [], [], []
-    
+
     # Insert new queries
     for row in queries_data:
         keys = row.get("keys", [""])
@@ -256,9 +285,10 @@ async def sync_gsc_data(
             impressions=int(row.get("impressions", 0)),
             ctr=round(float(row.get("ctr", 0.0)) * 100, 2),
             position=round(float(row.get("position", 0.0)), 1),
-            date_metric=today
+            date_metric=today,
+            search_type=search_type
         ))
-        
+
     # Insert new pages
     for row in pages_data:
         keys = row.get("keys", [""])
@@ -267,7 +297,8 @@ async def sync_gsc_data(
             impressions=int(row.get("impressions", 0)),
             ctr=round(float(row.get("ctr", 0.0)) * 100, 2),
             position=round(float(row.get("position", 0.0)), 1),
-            date_metric=today
+            date_metric=today,
+            search_type=search_type
         ))
         
     # Insert new countries
@@ -279,9 +310,10 @@ async def sync_gsc_data(
                 impressions=int(row.get("impressions", 0)),
                 ctr=round(float(row.get("ctr", 0.0)) * 100, 2),
                 position=round(float(row.get("position", 0.0)), 1),
-                date_metric=today
+                date_metric=today,
+                search_type=search_type
             ))
-            
+
     # Insert new devices
     if isinstance(devices_data, list):
         for row in devices_data:
@@ -291,9 +323,10 @@ async def sync_gsc_data(
                 impressions=int(row.get("impressions", 0)),
                 ctr=round(float(row.get("ctr", 0.0)) * 100, 2),
                 position=round(float(row.get("position", 0.0)), 1),
-                date_metric=today
+                date_metric=today,
+                search_type=search_type
             ))
-            
+
     # Insert new dates
     if isinstance(dates_data, list):
         for row in dates_data:
@@ -307,7 +340,8 @@ async def sync_gsc_data(
                 impressions=int(row.get("impressions", 0)),
                 ctr=round(float(row.get("ctr", 0.0)) * 100, 2),
                 position=round(float(row.get("position", 0.0)), 1),
-                date_metric=row_date
+                date_metric=row_date,
+                search_type=search_type
             ))
 
     if q_objects: db.add_all(q_objects)
@@ -318,34 +352,37 @@ async def sync_gsc_data(
         
     await db.flush()
 
-    # Update Keywords position
-    stmt = select(Keyword).where(Keyword.website_id == website_id)
-    res = await db.execute(stmt)
-    tracked_keywords = res.scalars().all()
-    
-    if tracked_keywords and q_objects:
-        gsc_lookup = {}
-        for q in q_objects:
-            kw = q.query.lower().strip()
-            pos = float(q.position)
-            if kw not in gsc_lookup or pos < gsc_lookup[kw]:
-                gsc_lookup[kw] = pos
-                
-        for kw_obj in tracked_keywords:
-            clean_kw = kw_obj.keyword.lower().strip()
-            if clean_kw in gsc_lookup:
-                new_pos = gsc_lookup[clean_kw]
-                kw_obj.last_position = new_pos
-                if kw_obj.best_position is None or new_pos < kw_obj.best_position:
-                    kw_obj.best_position = new_pos
+    # Update tracked Keyword positions — only from web search: an image or
+    # video result position is a different ranking than the keyword tracker's.
+    if search_type == "web":
+        stmt = select(Keyword).where(Keyword.website_id == website_id)
+        res = await db.execute(stmt)
+        tracked_keywords = res.scalars().all()
 
-        await db.flush()
-        
+        if tracked_keywords and q_objects:
+            gsc_lookup = {}
+            for q in q_objects:
+                kw = q.query.lower().strip()
+                pos = float(q.position)
+                if kw not in gsc_lookup or pos < gsc_lookup[kw]:
+                    gsc_lookup[kw] = pos
+
+            for kw_obj in tracked_keywords:
+                clean_kw = kw_obj.keyword.lower().strip()
+                if clean_kw in gsc_lookup:
+                    new_pos = gsc_lookup[clean_kw]
+                    kw_obj.last_position = new_pos
+                    if kw_obj.best_position is None or new_pos < kw_obj.best_position:
+                        kw_obj.best_position = new_pos
+
+            await db.flush()
+
     return {
         "status": "success",
         "message": "Google Search Console data synced successfully.",
         "website_id": str(website_id),
         "synced_date": str(today),
+        "search_type": search_type,
         "queries_added": len(q_objects),
         "pages_added": len(p_objects),
         "countries_added": len(c_objects),
@@ -353,7 +390,7 @@ async def sync_gsc_data(
         "dates_added": len(dt_objects),
     }
 
-async def get_gsc_overview(db: AsyncSession, website_id: UUID, days: int = 30) -> dict:
+async def get_gsc_overview(db: AsyncSession, website_id: UUID, days: int = 30, search_type: str = "web") -> dict:
     """Calculate aggregated Search Console performance metrics for a website."""
     from datetime import date, timedelta
     cutoff = date.today() - timedelta(days=days)
@@ -372,6 +409,7 @@ async def get_gsc_overview(db: AsyncSession, website_id: UUID, days: int = 30) -
         ).label("avg_position"),
     ).where(
         GscDate.website_id == website_id,
+        GscDate.search_type == search_type,
         GscDate.date_metric >= cutoff,
     )
     date_res = (await db.execute(date_stmt)).one()
@@ -398,6 +436,7 @@ async def get_gsc_overview(db: AsyncSession, website_id: UUID, days: int = 30) -
         ).label("avg_position"),
     ).where(
         GscQuery.website_id == website_id,
+        GscQuery.search_type == search_type,
         GscQuery.date_metric >= cutoff,
     )
 
@@ -411,7 +450,7 @@ async def get_gsc_overview(db: AsyncSession, website_id: UUID, days: int = 30) -
     }
 
 
-async def list_gsc_queries(db: AsyncSession, website_id: UUID, limit: int = 100, sort_by: str = "clicks") -> list[GscQuery]:
+async def list_gsc_queries(db: AsyncSession, website_id: UUID, limit: int = 100, sort_by: str = "clicks", search_type: str = "web") -> list[GscQuery]:
     order_col = GscQuery.clicks
     if sort_by == "impressions":
         order_col = GscQuery.impressions
@@ -422,7 +461,7 @@ async def list_gsc_queries(db: AsyncSession, website_id: UUID, limit: int = 100,
 
     stmt = (
         select(GscQuery)
-        .where(GscQuery.website_id == website_id)
+        .where(GscQuery.website_id == website_id, GscQuery.search_type == search_type)
         .order_by(desc(order_col) if sort_by != "position" else order_col.asc())
         .limit(limit)
     )
@@ -430,7 +469,7 @@ async def list_gsc_queries(db: AsyncSession, website_id: UUID, limit: int = 100,
     return list(result.scalars().all())
 
 
-async def list_gsc_pages(db: AsyncSession, website_id: UUID, limit: int = 100, sort_by: str = "clicks") -> list[GscPage]:
+async def list_gsc_pages(db: AsyncSession, website_id: UUID, limit: int = 100, sort_by: str = "clicks", search_type: str = "web") -> list[GscPage]:
     order_col = GscPage.clicks
     if sort_by == "impressions":
         order_col = GscPage.impressions
@@ -441,14 +480,14 @@ async def list_gsc_pages(db: AsyncSession, website_id: UUID, limit: int = 100, s
 
     stmt = (
         select(GscPage)
-        .where(GscPage.website_id == website_id)
+        .where(GscPage.website_id == website_id, GscPage.search_type == search_type)
         .order_by(desc(order_col) if sort_by != "position" else order_col.asc())
         .limit(limit)
     )
     result = await db.execute(stmt)
     return list(result.scalars().all())
 
-async def list_gsc_countries(db: AsyncSession, website_id: UUID, limit: int = 100, sort_by: str = "clicks") -> list[GscCountry]:
+async def list_gsc_countries(db: AsyncSession, website_id: UUID, limit: int = 100, sort_by: str = "clicks", search_type: str = "web") -> list[GscCountry]:
     order_col = GscCountry.clicks
     if sort_by == "impressions":
         order_col = GscCountry.impressions
@@ -457,11 +496,11 @@ async def list_gsc_countries(db: AsyncSession, website_id: UUID, limit: int = 10
     elif sort_by == "position":
         order_col = GscCountry.position
 
-    stmt = select(GscCountry).where(GscCountry.website_id == website_id).order_by(desc(order_col) if sort_by != "position" else order_col.asc()).limit(limit)
+    stmt = select(GscCountry).where(GscCountry.website_id == website_id, GscCountry.search_type == search_type).order_by(desc(order_col) if sort_by != "position" else order_col.asc()).limit(limit)
     result = await db.execute(stmt)
     return list(result.scalars().all())
 
-async def list_gsc_devices(db: AsyncSession, website_id: UUID, limit: int = 100, sort_by: str = "clicks") -> list[GscDevice]:
+async def list_gsc_devices(db: AsyncSession, website_id: UUID, limit: int = 100, sort_by: str = "clicks", search_type: str = "web") -> list[GscDevice]:
     order_col = GscDevice.clicks
     if sort_by == "impressions":
         order_col = GscDevice.impressions
@@ -470,11 +509,11 @@ async def list_gsc_devices(db: AsyncSession, website_id: UUID, limit: int = 100,
     elif sort_by == "position":
         order_col = GscDevice.position
 
-    stmt = select(GscDevice).where(GscDevice.website_id == website_id).order_by(desc(order_col) if sort_by != "position" else order_col.asc()).limit(limit)
+    stmt = select(GscDevice).where(GscDevice.website_id == website_id, GscDevice.search_type == search_type).order_by(desc(order_col) if sort_by != "position" else order_col.asc()).limit(limit)
     result = await db.execute(stmt)
     return list(result.scalars().all())
 
-async def list_gsc_dates(db: AsyncSession, website_id: UUID, limit: int = 100, sort_by: str = "date", days: int | None = None) -> list[GscDate]:
+async def list_gsc_dates(db: AsyncSession, website_id: UUID, limit: int = 100, sort_by: str = "date", days: int | None = None, search_type: str = "web") -> list[GscDate]:
     order_col = GscDate.date_metric
     if sort_by == "clicks":
         order_col = GscDate.clicks
@@ -485,7 +524,7 @@ async def list_gsc_dates(db: AsyncSession, website_id: UUID, limit: int = 100, s
     elif sort_by == "position":
         order_col = GscDate.position
 
-    stmt = select(GscDate).where(GscDate.website_id == website_id)
+    stmt = select(GscDate).where(GscDate.website_id == website_id, GscDate.search_type == search_type)
     if days:
         cutoff = date.today() - timedelta(days=days)
         stmt = stmt.where(GscDate.date_metric >= cutoff)

@@ -374,11 +374,21 @@ export default function WebsiteCalendarPage() {
     setError(null);
     try {
       const res = await autoScheduleFromOpportunities(websiteId, 10);
-      toast.success(
-        `زمان‌بندی هوشمند AI: ${formatNumberFa(res.created)} اسلات جدید از فرصت‌های رشد ایجاد شد${
-          res.skipped ? ` (${formatNumberFa(res.skipped)} مورد قبلاً زمان‌بندی شده بود)` : ""
-        }`
-      );
+      const { created, skipped, remaining_open: remainingOpen } = res;
+      if (created === 0 && (skipped > 0 || remainingOpen === 0)) {
+        toast.success(
+          `اسلات جدیدی اضافه نشد: ${formatNumberFa(skipped)} فرصت قبلاً در تقویم برنامه‌ریزی شده‌اند (حذف‌شده‌ها هم شامل می‌شود تا موضوع تکراری دوباره ساخته نشود)` +
+            (remainingOpen > 0
+              ? ` و ${formatNumberFa(remainingOpen)} فرصت باز فعلاً در صف هستند.`
+              : ".")
+        );
+      } else {
+        toast.success(
+          `زمان‌بندی هوشمند AI: ${formatNumberFa(created)} اسلات جدید از فرصت‌های رشد ایجاد شد` +
+            (skipped ? ` (${formatNumberFa(skipped)} مورد قبلاً زمان‌بندی شده بود)` : "") +
+            (remainingOpen ? ` — ${formatNumberFa(remainingOpen)} فرصت باز برای کلیک بعدی` : "")
+        );
+      }
       await loadData();
     } catch (err: any) {
       const message =
