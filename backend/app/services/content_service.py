@@ -1163,18 +1163,26 @@ async def publish_article_to_wp(
         "_yoast_wpseo_title": article.title or "",
     }
 
-    wp_res = await publish_post_to_wordpress(
-        db=db,
-        website_id=article.website_id,
-        title=article.title,
-        content_html=article.content_html,
-        status=post_status,
-        meta=wp_meta,
-        excerpt=meta_desc or None,
-        existing_post_id=article.wp_post_id,
-        featured_image_b64=seo.get("featured_image_b64"),
-        slug=article.slug,
-    )
+    try:
+        wp_res = await publish_post_to_wordpress(
+            db=db,
+            website_id=article.website_id,
+            title=article.title,
+            content_html=article.content_html,
+            status=post_status,
+            meta=wp_meta,
+            excerpt=meta_desc or None,
+            existing_post_id=article.wp_post_id,
+            featured_image_b64=seo.get("featured_image_b64"),
+            slug=article.slug,
+        )
+    except Exception as exc:
+        article.status = "publish_failed"
+        meta = dict(article.seo_metadata or {})
+        meta["last_publish_error"] = str(exc)
+        article.seo_metadata = meta
+        await db.flush()
+        raise
 
     article.wp_post_id = wp_res.get("id")
     article.published_url = wp_res.get("link")

@@ -427,26 +427,23 @@ async def call_ai_with_rotation(
             else:
                 continue
 
-            # Success! Update stats
+            # Success! Update stats in memory (committed by caller transaction)
             key_row.usage_count += 1
             key_row.error_count = 0
             key_row.last_used_at = datetime.now(timezone.utc)
-            await db.commit()
 
             return text, f"{provider}:{model}", p_tok, c_tok
 
         except AiProviderCallError as e:
-            # Record error on key
+            # Record error on key in memory
             key_row.error_count += 1
             key_row.last_error_at = datetime.now(timezone.utc)
-            await db.commit()
             errors_encountered.append(f"Key '{key_row.label}' ({provider}): {e.detail}")
             # Rotate to next key!
             continue
         except Exception as e:
             key_row.error_count += 1
             key_row.last_error_at = datetime.now(timezone.utc)
-            await db.commit()
             errors_encountered.append(f"Key '{key_row.label}' ({provider}): {str(e)}")
             continue
 

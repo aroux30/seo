@@ -242,12 +242,23 @@ async def _run_direct_site_audit(base_url: str) -> tuple[dict, dict, list]:
     is_https = base_url.lower().startswith("https://")
 
     try:
-        async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
-            resp = await client.get(base_url, headers=headers_desktop)
-            status_code = resp.status_code
-            html_content = resp.text
-            response_headers = dict(resp.headers)
-            load_time_sec = time.time() - start_time
+        current_url = validate_external_url(base_url)
+        max_redirects = 5
+        async with httpx.AsyncClient(timeout=20.0, follow_redirects=False) as client:
+            for _ in range(max_redirects):
+                resp = await client.get(current_url, headers=headers_desktop)
+                if resp.status_code in {301, 302, 303, 307, 308}:
+                    location = resp.headers.get("location")
+                    if not location:
+                        break
+                    next_url = str(httpx.URL(current_url).join(location))
+                    current_url = validate_external_url(next_url)
+                    continue
+                status_code = resp.status_code
+                html_content = resp.text
+                response_headers = dict(resp.headers)
+                break
+        load_time_sec = time.time() - start_time
     except httpx.ConnectError:
         load_time_sec = 2.5
         html_content = f"<html><head><title>{base_url}</title></head><body><p>SSL or Connection Failed</p></body></html>"
@@ -593,7 +604,7 @@ async def run_website_audit(
 
     # If Google PSI was not available or failed, use Direct Crawler Analyzer
     if not used_psi:
-        mobile_scores, desktop_scores, direct_issues = await _run_direct_site_audit(website.base_url)
+        mobile_scores, desktop_scores, direct_issues = await _run_direct_site_audit(target_url)
         summary_data["mobile"] = mobile_scores
         summary_data["desktop"] = desktop_scores
         issues = direct_issues
@@ -609,8 +620,8 @@ async def run_website_audit(
     audit.pages_crawled = 1
     audit.status = "completed"
 
-    # Delete old issues for this website
-    old_q = select(SeoAuditIssue).where(SeoAuditIssue.website_id == website_id)
+    # Delete existing issues for this audit run if re-executed (preserving historical audits)
+    old_q = select(SeoAuditIssue).where(SeoAuditIssue.audit_id == audit.id)
     old_res = await db.execute(old_q)
     for old_issue in old_res.scalars().all():
         await db.delete(old_issue)

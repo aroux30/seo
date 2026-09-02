@@ -7,13 +7,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import User, Organization, OrganizationMember, RefreshToken, AuditLog
 from app.core.security import (
-    hash_password, verify_password, create_access_token,
-    create_refresh_token_value, hash_token, ROLE_HIERARCHY,
+    hash_password, verify_password, hash_password_async, verify_password_async,
+    create_access_token, create_refresh_token_value, hash_token,
 )
 from app.core.exceptions import (
     ConflictError, UnauthorizedError, NotFoundError, ForbiddenError,
     ValidationError,
 )
+from app.core.url_security import validate_external_url
 from app.config import get_settings
 
 settings = get_settings()
@@ -29,7 +30,8 @@ async def register_user(db: AsyncSession, email: str, password: str, full_name: 
     if existing.scalar_one_or_none():
         raise ConflictError("Email already registered")
 
-    user = User(email=email, password_hash=hash_password(password), full_name=full_name)
+    pwd_hash = await hash_password_async(password)
+    user = User(email=email, password_hash=pwd_hash, full_name=full_name)
     db.add(user)
     await db.flush()
     return user
@@ -38,7 +40,7 @@ async def register_user(db: AsyncSession, email: str, password: str, full_name: 
 async def authenticate_user(db: AsyncSession, email: str, password: str) -> User:
     result = await db.execute(select(User).where(User.email == email, User.deleted_at.is_(None)))
     user = result.scalar_one_or_none()
-    if not user or not verify_password(password, user.password_hash):
+    if not user or not await verify_password_async(password, user.password_hash):
         raise UnauthorizedError("Incorrect email or password")
     if not user.is_active:
         raise UnauthorizedError("Account is deactivated")
@@ -439,10 +441,11 @@ async def create_website(
     await get_project(db, org_id, project_id)
 
     domain = _normalize_domain(domain)
+    validated_url = validate_external_url(base_url)
 
     website = Website(
         project_id=project_id, organization_id=org_id,
-        name=name, domain=domain, base_url=base_url,
+        name=name, domain=domain, base_url=validated_url,
         website_type=website_type, language=language, country=country, timezone=timezone,
         automation_mode=automation_mode,
     )
@@ -476,6 +479,8 @@ async def get_website(db: AsyncSession, org_id: UUID, website_id: UUID) -> Websi
 
 async def update_website(db: AsyncSession, org_id: UUID, user_id: UUID, website_id: UUID, data: dict) -> Website:
     website = await get_website(db, org_id, website_id)
+    if "base_url" in data and data["base_url"]:
+        data["base_url"] = validate_external_url(data["base_url"])
     before = {k: getattr(website, k) for k in data.keys() if hasattr(website, k)}
     for key, value in data.items():
         if value is not None and hasattr(website, key):

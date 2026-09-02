@@ -13,6 +13,7 @@ class User(BaseModel, SoftDeleteMixin):
 
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    password_reset_nonce: Mapped[str | None] = mapped_column(String(64), nullable=True)
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
     avatar_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
@@ -96,6 +97,7 @@ class Website(BaseModel, SoftDeleteMixin):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     domain: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     base_url: Mapped[str] = mapped_column(String(500), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
     website_type: Mapped[str] = mapped_column(String(50), default="blog", nullable=False)
     language: Mapped[str] = mapped_column(String(10), default="fa", nullable=False)
     country: Mapped[str] = mapped_column(String(5), default="IR", nullable=False)

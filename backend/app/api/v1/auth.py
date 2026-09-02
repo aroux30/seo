@@ -12,11 +12,11 @@ from app.services import (
     register_user, authenticate_user, create_token_pair,
     refresh_tokens, revoke_refresh_token,
 )
-from app.core.security import verify_password, hash_password
+from app.core.security import verify_password, hash_password, verify_password_async, hash_password_async
 from app.core.exceptions import UnauthorizedError
 from app.core.ratelimit import (
     login_rate_limit, register_rate_limit,
-    password_change_rate_limit, refresh_rate_limit,
+    password_change_rate_limit, refresh_rate_limit, forgot_password_rate_limit,
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -104,6 +104,24 @@ async def update_me(
     return {"data": UserRead.model_validate(user)}
 
 
+from app.core.security import (
+    verify_password,
+    verify_password_async,
+    hash_password,
+    hash_password_async,
+    create_access_token,
+    create_refresh_token_value,
+    hash_token,
+    create_reset_token,
+    decode_reset_token,
+)
+from jose import JWTError
+import secrets
+import logging
+
+logger = logging.getLogger(__name__)
+
+
 @router.put(
     "/me/password",
     status_code=204,
@@ -114,13 +132,13 @@ async def change_password(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    if not verify_password(body.current_password, user.password_hash):
+    if not await verify_password_async(body.current_password, user.password_hash):
         raise UnauthorizedError("Current password is incorrect")
-    user.password_hash = hash_password(body.new_password)
+    user.password_hash = await hash_password_async(body.new_password)
     # Revoke all active refresh tokens on password change
     from app.models import RefreshToken
     from datetime import datetime, timezone
-    from sqlalchemy import update, select
+    from sqlalchemy import update
     await db.execute(
         update(RefreshToken)
         .where(
@@ -132,23 +150,25 @@ async def change_password(
     await db.commit()
 
 
-from app.core.security import create_reset_token, decode_reset_token
-from jose import JWTError
-import logging
-
-logger = logging.getLogger(__name__)
-
-@router.post("/forgot-password", status_code=204)
+@router.post(
+    "/forgot-password",
+    status_code=204,
+    dependencies=[Depends(forgot_password_rate_limit)],
+)
 async def forgot_password(
     body: ForgotPasswordRequest,
     db: AsyncSession = Depends(get_db)
 ):
-    result = await db.execute(select(User).where(User.email == body.email))
+    result = await db.execute(select(User).where(User.email == body.email, User.deleted_at.is_(None)))
     user = result.scalars().first()
     if user:
-        token = create_reset_token(body.email)
-        logger.info(f"Password reset requested for {body.email}")
-        # In a real system, send this token via email
+        nonce = secrets.token_urlsafe(32)
+        user.password_reset_nonce = nonce
+        await db.commit()
+        token = create_reset_token(body.email, nonce=nonce)
+        logger.info(f"Password reset token issued for user {user.id}")
+        # In a real production setup, dispatch background email worker here:
+        # await send_password_reset_email(to=user.email, token=token)
     return None
 
 
@@ -158,16 +178,24 @@ async def reset_password(
     db: AsyncSession = Depends(get_db)
 ):
     try:
-        email = decode_reset_token(body.token)
+        payload = decode_reset_token(body.token)
+        email = payload.get("sub")
+        token_nonce = payload.get("nonce")
     except JWTError:
         raise UnauthorizedError("لینک بازیابی نامعتبر یا منقضی شده است")
         
-    result = await db.execute(select(User).where(User.email == email))
+    result = await db.execute(select(User).where(User.email == email, User.deleted_at.is_(None)))
     user = result.scalars().first()
     if not user:
         raise UnauthorizedError("کاربر یافت نشد")
-        
-    user.password_hash = hash_password(body.new_password)
+
+    if not token_nonce or token_nonce != user.password_reset_nonce:
+        raise UnauthorizedError("لینک بازیابی قبلاً استفاده شده یا منقضی شده است")
+
+    user.password_hash = await hash_password_async(body.new_password)
+    # Invalidate the nonce so token is strictly one-time-use
+    user.password_reset_nonce = None
+
     # Invalidate all active sessions/tokens for user
     from app.models import RefreshToken
     from datetime import datetime, timezone

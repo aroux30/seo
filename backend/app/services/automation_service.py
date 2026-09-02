@@ -309,7 +309,14 @@ async def handle_webhook_callback(
     execution_time_ms: int | None = None,
     error_message: str | None = None,
 ) -> AutomationLog:
-    """Callback method for n8n to post back execution results asynchronously."""
+    """Callback method for n8n to post back execution results asynchronously.
+    
+    Verifies that workflow and website match to prevent cross-tenant spoofing.
+    """
+    workflow = await db.get(AutomationWorkflow, workflow_id)
+    if not workflow or workflow.website_id != website_id:
+        raise NotFoundError("AutomationWorkflow", str(workflow_id))
+
     log_entry = AutomationLog(
         workflow_id=workflow_id,
         website_id=website_id,
@@ -321,10 +328,8 @@ async def handle_webhook_callback(
     )
     db.add(log_entry)
 
-    workflow = await db.get(AutomationWorkflow, workflow_id)
-    if workflow:
-        workflow.last_run_at = datetime.utcnow()
-        workflow.last_run_status = status
+    workflow.last_run_at = datetime.utcnow()
+    workflow.last_run_status = status
 
     await db.commit()
     await db.refresh(log_entry)

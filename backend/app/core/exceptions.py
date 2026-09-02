@@ -31,3 +31,8 @@ class UnauthorizedError(AppException):
 class ValidationError(AppException):
     def __init__(self, detail: str = "Validation error"):
         super().__init__(status.HTTP_422_UNPROCESSABLE_ENTITY, detail, "validation_error")
+
+
+class BadRequestError(AppException):
+    def __init__(self, detail: str = "Bad request"):
+        super().__init__(status.HTTP_400_BAD_REQUEST, detail, "bad_request")

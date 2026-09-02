@@ -63,25 +63,33 @@ async def get_kpi_summary(db: AsyncSession, org_id: UUID) -> dict:
     strategy_total = (await db.execute(strategy_stmt)).scalar_one()
 
     # ---------------- weekly production (last 6 weeks, for the chart) --------
+    six_weeks_ago = week_start - timedelta(weeks=5)
+    week_trunc = func.date_trunc("week", ContentArticle.created_at)
+    grouped_stmt = (
+        select(week_trunc.label("wk"), func.count(ContentArticle.id))
+        .select_from(ContentArticle)
+        .join(Website, Website.id == ContentArticle.website_id)
+        .where(
+            Website.organization_id == org_id,
+            ContentArticle.deleted_at.is_(None),
+            ContentArticle.created_at >= six_weeks_ago,
+        )
+        .group_by(week_trunc)
+    )
+    grouped_res = await db.execute(grouped_stmt)
+    week_counts = {}
+    for row in grouped_res.all():
+        if row[0]:
+            week_counts[row[0].date().isoformat()] = row[1]
+
     weekly = []
     for i in range(5, -1, -1):
         start = week_start - timedelta(weeks=i)
-        end = start + timedelta(weeks=1)
-        cnt_stmt = (
-            select(func.count(ContentArticle.id))
-            .select_from(ContentArticle)
-            .join(Website, Website.id == ContentArticle.website_id)
-            .where(
-                Website.organization_id == org_id,
-                ContentArticle.deleted_at.is_(None),
-                ContentArticle.created_at >= start,
-                ContentArticle.created_at < end,
-            )
-        )
-        cnt = (await db.execute(cnt_stmt)).scalar_one()
+        start_date_str = start.date().isoformat()
+        cnt = week_counts.get(start_date_str, 0)
         weekly.append(
             {
-                "week_start": start.date().isoformat(),
+                "week_start": start_date_str,
                 "label": f"هفته {start.strftime('%m/%d')}",
                 "articles": cnt,
             }

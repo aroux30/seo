@@ -338,12 +338,23 @@ async def sync_gsc_data(
 
 async def get_gsc_overview(db: AsyncSession, website_id: UUID) -> dict:
     """Calculate aggregated Search Console performance metrics for a website."""
+    from datetime import date, timedelta
+    thirty_days_ago = date.today() - timedelta(days=30)
     stmt = select(
         func.coalesce(func.sum(GscQuery.clicks), 0).label("total_clicks"),
         func.coalesce(func.sum(GscQuery.impressions), 0).label("total_impressions"),
-        func.coalesce(func.avg(GscQuery.ctr), 0.0).label("avg_ctr"),
-        func.coalesce(func.avg(GscQuery.position), 0.0).label("avg_position"),
-    ).where(GscQuery.website_id == website_id)
+        func.coalesce(
+            func.sum(GscQuery.clicks) * 100.0 / func.nullif(func.sum(GscQuery.impressions), 0),
+            0.0
+        ).label("avg_ctr"),
+        func.coalesce(
+            func.sum(GscQuery.position * GscQuery.impressions) / func.nullif(func.sum(GscQuery.impressions), 0),
+            0.0
+        ).label("avg_position"),
+    ).where(
+        GscQuery.website_id == website_id,
+        GscQuery.date_metric >= thirty_days_ago,
+    )
 
     result = await db.execute(stmt)
     row = result.one()

@@ -156,16 +156,12 @@ async def get_article_endpoint(
 async def article_featured_image_endpoint(
     article_id: UUID,
     db: AsyncSession = Depends(get_db),
+    member: OrganizationMember = Depends(require_role("viewer")),
 ):
-    """Stream the generated featured image bytes.
-
-    Deliberately unauthenticated: <img> tags cannot send Authorization headers,
-    and the payload is a marketing illustration keyed by an unguessable UUID —
-    there is nothing secret to protect. Without this the editor preview and the
-    SEO checklist could not render the image.
-    """
+    """Stream the generated featured image bytes for authorized tenant members."""
     from fastapi import Response
 
+    await assert_article_in_org(db, article_id, member.organization_id)
     article = await get_content_article_by_id(db, article_id)
     if not article:
         raise AppException(status_code=404, detail="مقاله یافت نشد.", error_type="article_not_found")
@@ -179,7 +175,19 @@ async def article_featured_image_endpoint(
         raw = _b64.b64decode(b64)
     except Exception:
         raise AppException(status_code=500, detail="تصویر مقاله قابل خواندن نبود.", error_type="bad_featured_image")
-    return Response(content=raw, media_type="image/png")
+
+    # Detect image MIME magic bytes safely
+    media_type = "image/png"
+    if raw.startswith(b"\x89PNG\r\n\x1a\n"):
+        media_type = "image/png"
+    elif raw.startswith(b"\xff\xd8\xff"):
+        media_type = "image/jpeg"
+    elif raw.startswith(b"GIF87a") or raw.startswith(b"GIF89a"):
+        media_type = "image/gif"
+    elif raw.startswith(b"RIFF") and b"WEBP" in raw[:16]:
+        media_type = "image/webp"
+
+    return Response(content=raw, media_type=media_type)
 
 
 @router.patch("/articles/detail/{article_id}", response_model=ContentArticleRead)

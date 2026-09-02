@@ -18,7 +18,8 @@ celery_app.conf.update(
     timezone="Asia/Tehran",
     enable_utc=True,
     task_track_started=True,
-    task_time_limit=300,  # 5 minutes max per task
+    task_time_limit=1800,  # 30 minutes max per task
+    task_soft_time_limit=1500,  # 25 minutes soft limit
 )
 
 # Scheduled background tasks

@@ -9,7 +9,7 @@ from app.config import get_settings
 from app.database import get_db
 from app.models import User, OrganizationMember
 from app.core.security import decode_access_token, role_has_permission
-from app.core.exceptions import UnauthorizedError, ForbiddenError
+from app.core.exceptions import UnauthorizedError, ForbiddenError, BadRequestError
 
 security_scheme = HTTPBearer()
 
@@ -39,23 +39,22 @@ async def get_current_membership(
     db: AsyncSession = Depends(get_db),
     x_organization_id: str | None = Header(None),
 ) -> OrganizationMember:
-    """Get the user's membership for the specified organization."""
+    """Get the user's membership for the specified organization.
+    
+    Requires explicit X-Organization-Id header to prevent accidental tenant leaks.
+    """
     if not x_organization_id:
-        # Fall back to first org membership
-        result = await db.execute(
-            select(OrganizationMember)
-            .where(OrganizationMember.user_id == user.id)
-            .limit(1)
-        )
-        member = result.scalar_one_or_none()
-        if not member:
-            raise ForbiddenError("User is not a member of any organization")
-        return member
+        raise BadRequestError("X-Organization-Id header is required")
+
+    try:
+        org_uuid = UUID(x_organization_id)
+    except (ValueError, TypeError):
+        raise BadRequestError("Invalid X-Organization-Id format")
 
     result = await db.execute(
         select(OrganizationMember).where(
             OrganizationMember.user_id == user.id,
-            OrganizationMember.organization_id == x_organization_id,
+            OrganizationMember.organization_id == org_uuid,
         )
     )
     member = result.scalar_one_or_none()

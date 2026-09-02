@@ -1,9 +1,11 @@
+import asyncio
 from datetime import datetime, timedelta, timezone
 from hashlib import sha256
-from uuid import UUID
+from uuid import UUID, uuid4
+import secrets
 
 from jose import jwt, JWTError
-
+import bcrypt
 
 from app.config import get_settings
 
@@ -19,11 +21,13 @@ ROLE_HIERARCHY = {
 }
 
 
-import bcrypt
-
 def hash_password(password: str) -> str:
     salt = bcrypt.gensalt()
     return bcrypt.hashpw(password.encode('utf-8'), salt).decode('utf-8')
+
+
+async def hash_password_async(password: str) -> str:
+    return await asyncio.to_thread(hash_password, password)
 
 
 def verify_password(plain: str, hashed: str) -> bool:
@@ -31,6 +35,10 @@ def verify_password(plain: str, hashed: str) -> bool:
         return bcrypt.checkpw(plain.encode('utf-8'), hashed.encode('utf-8'))
     except ValueError:
         return False
+
+
+async def verify_password_async(plain: str, hashed: str) -> bool:
+    return await asyncio.to_thread(verify_password, plain, hashed)
 
 
 def create_access_token(user_id: UUID, org_id: UUID | None = None) -> str:
@@ -42,7 +50,6 @@ def create_access_token(user_id: UUID, org_id: UUID | None = None) -> str:
 
 
 def create_refresh_token_value() -> str:
-    import secrets
     return secrets.token_urlsafe(64)
 
 
@@ -58,18 +65,25 @@ def decode_access_token(token: str) -> dict:
     return payload
 
 
-def create_reset_token(email: str) -> str:
+def create_reset_token(email: str, nonce: str | None = None) -> str:
     expire = datetime.now(timezone.utc) + timedelta(minutes=15)
-    payload = {"sub": email, "exp": expire, "type": "reset"}
+    payload = {
+        "sub": email,
+        "exp": expire,
+        "type": "reset",
+        "jti": str(uuid4()),
+    }
+    if nonce:
+        payload["nonce"] = nonce
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
 
-def decode_reset_token(token: str) -> str:
-    """Decode and validate a reset token, returning the email. Raises JWTError on failure."""
+def decode_reset_token(token: str) -> dict:
+    """Decode and validate a reset token, returning the payload. Raises JWTError on failure."""
     payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
     if payload.get("type") != "reset":
         raise JWTError("Invalid token type")
-    return payload.get("sub")
+    return payload
 
 
 def role_has_permission(user_role: str, required_role: str) -> bool:

@@ -42,6 +42,10 @@ def _sign(payload: str) -> str:
     ).hexdigest()
 
 
+# In-memory consumed nonces cache to guarantee single-use state per deployment / process
+_consumed_nonces: dict[str, int] = {}
+
+
 def issue_state(website_id: UUID) -> str:
     """Build a signed, timestamped state for the OAuth authorization request."""
     payload = f"{website_id}{_SEPARATOR}{int(time.time())}{_SEPARATOR}{secrets.token_urlsafe(16)}"
@@ -51,7 +55,7 @@ def issue_state(website_id: UUID) -> str:
 def verify_state(state: str, max_age: int = STATE_MAX_AGE_SECONDS) -> UUID:
     """Validate a state string and return the website_id it was issued for.
 
-    Raises InvalidOAuthState on any tampering, malformation, or expiry.
+    Raises InvalidOAuthState on any tampering, malformation, expiry, or reuse.
     """
     if not state:
         raise InvalidOAuthState("Missing state parameter")
@@ -67,15 +71,27 @@ def verify_state(state: str, max_age: int = STATE_MAX_AGE_SECONDS) -> UUID:
     if not hmac.compare_digest(_sign(payload), signature):
         raise InvalidOAuthState("State signature mismatch")
 
+    # Anti-Replay: Check if nonce was already consumed
+    now = int(time.time())
+    if nonce in _consumed_nonces:
+        raise InvalidOAuthState("OAuth state already consumed")
+
     try:
         issued_at = int(issued_at_str)
     except ValueError:
         raise InvalidOAuthState("Malformed state timestamp")
 
-    age = int(time.time()) - issued_at
+    age = now - issued_at
     # Reject far-future timestamps too (clock skew abuse).
     if age > max_age or age < -60:
         raise InvalidOAuthState("State expired")
+
+    # Mark nonce as consumed and opportunistically purge old nonces
+    _consumed_nonces[nonce] = now
+    if len(_consumed_nonces) > 5_000:
+        for n, exp_time in list(_consumed_nonces.items()):
+            if now - exp_time > max_age:
+                _consumed_nonces.pop(n, None)
 
     try:
         return UUID(website_id_str)

@@ -412,6 +412,22 @@ async def decide_approval_request(
     row.reviewer_comment = reviewer_comment
     await db.flush()
 
+    if decision == "approved":
+        if row.action_type == "publish_article" and row.related_article_id:
+            try:
+                from app.workers.tasks import publish_article_to_wordpress_task
+                post_status = (row.payload or {}).get("post_status", "publish")
+                publish_article_to_wordpress_task.delay(str(row.related_article_id), post_status=post_status)
+            except Exception as e:
+                logger.error("[Approvals] Failed to dispatch publish task for %s: %s", request_id, e)
+        elif row.action_type == "execute_automation" and (row.payload or {}).get("workflow_id"):
+            try:
+                from app.workers.tasks import trigger_automation_workflow_task
+                wf_id = row.payload["workflow_id"]
+                trigger_automation_workflow_task.delay(str(wf_id))
+            except Exception as e:
+                logger.error("[Approvals] Failed to dispatch automation workflow for %s: %s", request_id, e)
+
     logger.info(
         "[Approvals] %s %s by %s (action=%s)",
         request_id, decision, user_id, row.action_type,

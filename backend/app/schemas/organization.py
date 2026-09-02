@@ -74,6 +74,7 @@ class WebsiteCreate(BaseModel):
     name: str
     domain: str
     base_url: str
+    description: str | None = None
     website_type: str = "blog"
     language: str = "fa"
     country: str = "IR"
@@ -85,6 +86,7 @@ class WebsiteUpdate(BaseModel):
     name: str | None = None
     domain: str | None = None
     base_url: str | None = None
+    description: str | None = None
     website_type: str | None = None
     language: str | None = None
     country: str | None = None
@@ -102,6 +104,7 @@ class WebsiteRead(OrmBase):
     name: str
     domain: str
     base_url: str
+    description: str | None = None
     website_type: str
     language: str
     country: str

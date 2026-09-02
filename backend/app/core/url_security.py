@@ -103,3 +103,34 @@ def validate_external_url(url: str, allow_http: bool = True) -> str:
             )
 
     return url.strip()
+
+
+async def safe_fetch_external_image(
+    url: str,
+    max_bytes: int = 5 * 1024 * 1024,
+    timeout: float = 15.0,
+    headers: dict | None = None,
+) -> tuple[bytes, str]:
+    """Fetch external image with strict SSRF validation and redirect loop re-validation."""
+    current_url = validate_external_url(url)
+    max_redirects = 5
+
+    async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
+        for _ in range(max_redirects):
+            res = await client.get(current_url, headers=headers)
+            if res.status_code in {301, 302, 303, 307, 308}:
+                location = res.headers.get("location")
+                if not location:
+                    raise AppException(400, "Redirect location header missing", "invalid_redirect")
+                next_url = str(httpx.URL(current_url).join(location))
+                current_url = validate_external_url(next_url)
+                continue
+
+            res.raise_for_status()
+            content = res.content
+            if len(content) > max_bytes:
+                raise AppException(400, "Image payload exceeds size limit", "image_too_large")
+            content_type = res.headers.get("content-type", "image/png")
+            return content, content_type
+
+    raise AppException(400, "Too many redirects during image fetch", "too_many_redirects")

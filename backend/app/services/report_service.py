@@ -1478,8 +1478,19 @@ _CSV_KPI_ROWS = (
 )
 
 
+_CSV_DANGEROUS_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _safe_csv_val(val):
+    if val is None:
+        return ""
+    if isinstance(val, str) and val.startswith(_CSV_DANGEROUS_PREFIXES):
+        return f"'{val}"
+    return val
+
+
 def build_report_csv(report: Report) -> str:
-    """Render a report as CSV, using the stdlib writer.
+    """Render a report as CSV, using the stdlib writer with formula injection protection.
 
     Built from `metrics_snapshot` and the frozen `content`, never by re-querying:
     the export must match the document on screen exactly.
@@ -1495,8 +1506,8 @@ def build_report_csv(report: Report) -> str:
     content = report.content or {}
     period = content.get("period", {})
 
-    writer.writerow(["گزارش", report.title or ""])
-    writer.writerow(["نوع گزارش", report.report_type])
+    writer.writerow(["گزارش", _safe_csv_val(report.title or "")])
+    writer.writerow(["نوع گزارش", _safe_csv_val(report.report_type)])
     writer.writerow(["از تاریخ", period.get("start", report.period_start.isoformat())])
     writer.writerow(["تا تاریخ", period.get("end", report.period_end.isoformat())])
     writer.writerow([
@@ -1509,7 +1520,7 @@ def build_report_csv(report: Report) -> str:
     writer.writerow(["شاخص", "مقدار"])
     for key, label in _CSV_KPI_ROWS:
         value = snapshot.get(key)
-        writer.writerow([label, "" if value is None else value])
+        writer.writerow([label, _safe_csv_val(value)])
     writer.writerow([])
 
     for section in content.get("sections", []):
@@ -1518,13 +1529,13 @@ def build_report_csv(report: Report) -> str:
             # Sections with no tabular body (or no data at all) still get a line,
             # so the export shows the reader that the section existed and was
             # empty rather than silently omitting it.
-            writer.writerow([section.get("title_fa", section.get("key", ""))])
+            writer.writerow([_safe_csv_val(section.get("title_fa", section.get("key", "")))])
             if not section.get("has_data", True):
                 writer.writerow([_NO_DATA_NOTE])
             writer.writerow([])
             continue
 
-        writer.writerow([section.get("title_fa", section.get("key", ""))])
+        writer.writerow([_safe_csv_val(section.get("title_fa", section.get("key", "")))])
         # Union of keys across rows, first-seen order: rows in a section are
         # homogeneous in practice, but a missing optional key must not shift
         # every later column.
@@ -1533,9 +1544,9 @@ def build_report_csv(report: Report) -> str:
             for key in row.keys():
                 if key not in headers:
                     headers.append(key)
-        writer.writerow(headers)
+        writer.writerow([_safe_csv_val(h) for h in headers])
         for row in rows:
-            writer.writerow(["" if row.get(h) is None else row.get(h) for h in headers])
+            writer.writerow([_safe_csv_val(row.get(h)) for h in headers])
         writer.writerow([])
 
     return "﻿" + buffer.getvalue()

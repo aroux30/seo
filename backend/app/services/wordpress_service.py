@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.encryption import encrypt_value, decrypt_value
 from app.core.exceptions import AppException, NotFoundError
-from app.core.url_security import validate_external_url
+from app.core.url_security import validate_external_url, safe_fetch_external_image
 from app.models import WordPressIntegration, Website
 
 _IMG_SRC_RE = re.compile(r'<img\b[^>]*src=["\']([^"\']+)["\']', flags=re.IGNORECASE)
@@ -242,7 +242,7 @@ async def publish_post_to_wordpress(
         meta["_yoast_wpseo_focuskw"] = focus_kw
 
     try:
-        async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=20.0, follow_redirects=False) as client:
             # --- featured image (base64 from the pipeline takes priority) ---
             _UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126 Safari/537.36"}
             body_image_candidates: list[str] = []
@@ -291,14 +291,10 @@ async def publish_post_to_wordpress(
                 )
             for img_url in body_image_candidates:
                 try:
-                    safe_img_url = validate_external_url(img_url)
-                    img_res = await client.get(safe_img_url, timeout=30.0, headers=_UA)
-                    img_res.raise_for_status()
-                    raw = img_res.content
-                    if not (0 < len(raw) <= _MAX_IMAGE_BYTES):
-                        featured_note = "تصویر مقاله برای بارگذاری بیش از حد بزرگ بود."
-                        continue
-                    ctype, ext = _guess_image_type(img_url, img_res.headers.get("content-type"))
+                    raw, res_ctype = await safe_fetch_external_image(
+                        img_url, max_bytes=_MAX_IMAGE_BYTES, timeout=15.0, headers=_UA
+                    )
+                    ctype, ext = _guess_image_type(img_url, res_ctype)
                     media_res = await client.post(
                         f"{clean_url}/wp-json/wp/v2/media",
                         content=raw,

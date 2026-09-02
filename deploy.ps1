@@ -13,6 +13,9 @@ if (-not (Test-Path ".env.production")) {
     Write-Host "❗  Please edit .env.production with your real API keys and password!" -ForegroundColor Yellow
 }
 
+# Ensure .env exists and mirrors .env.production for docker compose interpolation
+Copy-Item ".env.production" ".env" -Force
+
 Write-Host "📦 1/4: Building Docker Images and Services..." -ForegroundColor Green
 docker compose -f docker-compose.prod.yml build --pull
 

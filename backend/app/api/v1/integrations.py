@@ -16,7 +16,9 @@ from app.services.gsc_service import (
 from app.services.wordpress_service import (
     connect_wordpress, get_wordpress_integration, list_wp_categories,
 )
-from app.workers.tasks import sync_website_gsc_task
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/integrations", tags=["integrations"])
 
@@ -68,7 +70,8 @@ async def gsc_callback(
         )
     
     if resp.status_code != 200:
-        raise HTTPException(status_code=400, detail=f"Failed to exchange code: {resp.text}")
+        logger.warning("Google token exchange failed with HTTP %s", resp.status_code)
+        raise HTTPException(status_code=502, detail="Google authentication service failed to exchange authorization code")
 
     token_data = resp.json()
 
@@ -109,12 +112,12 @@ async def gsc_status(
 @router.post("/gsc/sync/{website_id}", response_model=dict)
 async def trigger_gsc_sync(
     website_id: UUID,
-    days: int = Query(30),
+    days: int = Query(30, ge=1, le=90),
     search_type: str = Query("web"),
     member: OrganizationMember = Depends(require_role("seo_manager")),
     db: AsyncSession = Depends(get_db),
 ):
-    """Trigger synchronous or Celery background GSC data sync for website."""
+    """Trigger synchronous or background GSC data sync for website."""
     await assert_website_in_org(db, website_id, member.organization_id)
     res = await sync_gsc_data(db, website_id, days=days, search_type=search_type)
     await db.commit()

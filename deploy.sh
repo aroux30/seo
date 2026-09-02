@@ -15,6 +15,9 @@ if [ ! -f .env.production ]; then
     echo "❗  Please edit .env.production with your real API keys and database password before running production!"
 fi
 
+# Ensure .env is linked to .env.production so docker-compose variable interpolation works reliably
+ln -sf .env.production .env
+
 echo "📦 1/4: Building Docker Images and Services..."
 docker-compose -f docker-compose.prod.yml build --pull
 

@@ -16,6 +16,7 @@ export default function WebsiteSettingsPage() {
   const [name, setName] = useState("");
   const [domain, setDomain] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
+  const [description, setDescription] = useState("");
   const [language, setLanguage] = useState("fa");
   const [country, setCountry] = useState("IR");
   const [saving, setSaving] = useState(false);
@@ -29,6 +30,7 @@ export default function WebsiteSettingsPage() {
       setName(currentWebsite.name);
       setDomain(currentWebsite.domain);
       setBaseUrl(currentWebsite.base_url);
+      setDescription(currentWebsite.description || "");
       setLanguage(currentWebsite.language || "fa");
       setCountry(currentWebsite.country || "IR");
     }
@@ -42,6 +44,7 @@ export default function WebsiteSettingsPage() {
         name,
         domain,
         base_url: baseUrl,
+        description: description || null,
         language,
         country,
       });
@@ -99,6 +102,22 @@ export default function WebsiteSettingsPage() {
               onChange={(e) => setName(e.target.value)}
               className="w-full rounded-xl border border-white/10 bg-black/40 px-3.5 py-2.5 text-sm text-white focus:border-primary focus:outline-none"
             />
+          </div>
+
+          <div>
+            <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
+              توضیحات کسب‌وکار (بسیار مهم برای هوش مصنوعی)
+            </label>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={3}
+              placeholder="مثال: فروشگاه آنلاین فروش یوسی پابجی، سی‌پی کالاف دیوتی و گیفت کارت‌های بازی. مخاطبان ما گیمرهای ایرانی هستند."
+              className="w-full rounded-xl border border-white/10 bg-black/40 px-3.5 py-2.5 text-sm text-white placeholder:text-white/20 focus:border-primary focus:outline-none resize-none"
+            />
+            <p className="mt-1 text-[11px] text-amber-400/70">
+              این توضیحات مستقیماً توسط هوش مصنوعی برای تولید استراتژی و محتوا استفاده می‌شود. هرچه دقیق‌تر بنویسید، نتایج بهتری دریافت می‌کنید.
+            </p>
           </div>
 
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">

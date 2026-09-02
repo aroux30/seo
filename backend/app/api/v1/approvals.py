@@ -39,6 +39,11 @@ from app.schemas.approvals import (
     ApprovalReadWithNames,
     ApprovalSummary,
 )
+from app.core.scoping import (
+    assert_website_in_org,
+    assert_article_in_org,
+    assert_brief_in_org,
+)
 from app.services import approval_service
 
 router = APIRouter(prefix="/approvals", tags=["approvals"])
@@ -55,6 +60,13 @@ async def create_approval_endpoint(
     `requester_id` is taken from the session, so a member cannot file a request
     in someone else's name and then approve it themselves.
     """
+    if body.website_id:
+        await assert_website_in_org(db, body.website_id, member.organization_id)
+    if body.related_article_id:
+        await assert_article_in_org(db, body.related_article_id, member.organization_id)
+    if body.related_brief_id:
+        await assert_brief_in_org(db, body.related_brief_id, member.organization_id)
+
     row = await approval_service.create_approval_request(
         db,
         organization_id=member.organization_id,

@@ -10,12 +10,22 @@ from app.core.exceptions import AppException
 
 settings = get_settings()
 
+is_production = settings.ENVIRONMENT.lower() == "production"
+
+# In production, validate critical secret placeholders to fail closed
+if is_production:
+    if settings.SECRET_KEY in ("change-me", "CHANGE_ME_64_CHAR_RANDOM_HEX", ""):
+        raise RuntimeError("FATAL: SECRET_KEY must be properly set in production environment!")
+    if settings.ENCRYPTION_KEY in ("change-me", "CHANGE_ME_FERNET_KEY", ""):
+        raise RuntimeError("FATAL: ENCRYPTION_KEY must be properly set in production environment!")
+
 app = FastAPI(
     title="AI SEO OS — API",
     version="0.1.0",
     description="Centralized AI-powered SEO Management Platform API",
-    docs_url="/docs",
-    redoc_url="/redoc",
+    docs_url=None if is_production else "/docs",
+    redoc_url=None if is_production else "/redoc",
+    openapi_url=None if is_production else "/openapi.json",
 )
 
 # CORS Middleware

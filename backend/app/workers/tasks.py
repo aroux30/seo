@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from uuid import UUID
-from celery import shared_task
+from celery import shared_task, chain
 
 from app.database import async_session_factory, engine
 from app.core.exceptions import AppException
@@ -92,7 +92,10 @@ def sync_all_websites_gsc_task() -> dict:
 
     async def _get_all_sites():
         async with async_session_factory() as db:
-            stmt = select(Website.id).where(Website.status == "active")
+            stmt = select(Website.id).where(
+                Website.status == "active",
+                Website.deleted_at.is_(None),
+            )
             res = await db.execute(stmt)
             return [str(uid) for uid in res.scalars().all()]
 
@@ -111,6 +114,7 @@ def run_website_audit_task(website_id_str: str, max_pages: int = 20) -> dict:
     async def _async_audit():
         async with async_session_factory() as db:
             audit = await run_website_audit(db, UUID(website_id_str), max_pages=max_pages)
+            await db.commit()
             return {"audit_id": str(audit.id), "overall_score": audit.overall_score}
 
     try:
@@ -130,6 +134,7 @@ def generate_seo_strategy_task(website_id_str: str, provider: str | None = None)
     async def _async_strategy():
         async with async_session_factory() as db:
             strategy = await generate_seo_strategy(db, UUID(website_id_str), provider=provider)
+            await db.commit()
             return {"strategy_id": str(strategy.id), "title": strategy.title}
 
     try:
@@ -154,6 +159,7 @@ def generate_content_brief_task(website_id_str: str, target_keyword: str, title:
             brief = await generate_content_brief(
                 db, UUID(website_id_str), target_keyword=target_keyword, title=title
             )
+            await db.commit()
             return {"brief_id": str(brief.id), "title": brief.title}
 
     try:
@@ -182,6 +188,7 @@ def generate_article_task(
             article = await generate_seo_article(
                 db, UUID(website_id_str), brief_id=brief_id, title=title, target_keyword=target_keyword, provider=provider
             )
+            await db.commit()
             return {"article_id": str(article.id), "title": article.title, "slug": article.slug}
 
     try:
@@ -201,6 +208,7 @@ def publish_article_to_wordpress_task(article_id_str: str, post_status: str = "d
     async def _async_pub():
         async with async_session_factory() as db:
             article = await publish_article_to_wp(db, UUID(article_id_str), post_status=post_status)
+            await db.commit()
             return {
                 "article_id": str(article.id),
                 "wp_post_id": article.wp_post_id,
@@ -228,6 +236,7 @@ def trigger_automation_workflow_task(workflow_id_str: str) -> dict:
     async def _async_trigger():
         async with async_session_factory() as db:
             log_entry = await trigger_automation_workflow(db, UUID(workflow_id_str))
+            await db.commit()
             return {
                 "log_id": str(log_entry.id),
                 "workflow_id": str(log_entry.workflow_id),
@@ -264,6 +273,7 @@ def run_all_active_cron_automations_task() -> dict:
                     triggered_ids.append(str(wf.id))
                 except Exception as ex:
                     logger.error(f"[Celery] Error running cron workflow {wf.id}: {ex}")
+            await db.commit()
             return {"triggered_count": len(triggered_ids), "triggered_workflows": triggered_ids}
 
     try:
@@ -281,7 +291,11 @@ def process_auto_mode_websites_task() -> dict:
 
     async def _async_process():
         async with async_session_factory() as db:
-            stmt = select(Website.id).where(Website.status == "active", Website.automation_mode == "auto")
+            stmt = select(Website.id).where(
+                Website.status == "active",
+                Website.deleted_at.is_(None),
+                Website.automation_mode == "auto",
+            )
             res = await db.execute(stmt)
             site_ids = [str(uid) for uid in res.scalars().all()]
             return site_ids
@@ -289,9 +303,12 @@ def process_auto_mode_websites_task() -> dict:
     try:
         site_ids = _run_async(_async_process())
         for site_id in site_ids:
-            # Trigger audit first, then strategy
-            run_website_audit_task.delay(site_id)
-            generate_seo_strategy_task.apply_async((site_id,), countdown=60) # delay strategy to ensure audit is done
+            # Chain audit and strategy so strategy strictly runs after audit completes
+            workflow = chain(
+                run_website_audit_task.s(site_id),
+                generate_seo_strategy_task.si(site_id),
+            )
+            workflow.apply_async()
 
         return {"processed_count": len(site_ids), "websites": site_ids}
     except Exception as e:

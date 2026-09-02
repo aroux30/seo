@@ -6,6 +6,16 @@ from app.core.exceptions import AppException
 
 settings = get_settings()
 
+import base64
+import os
+from cryptography.fernet import Fernet, InvalidToken
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+from cryptography.hazmat.primitives import hashes
+from app.config import get_settings
+from app.core.exceptions import AppException
+
+settings = get_settings()
+
 def get_fernet() -> Fernet:
     key = settings.ENCRYPTION_KEY
     if key and isinstance(key, str) and len(key) == 44:
@@ -13,9 +23,16 @@ def get_fernet() -> Fernet:
             return Fernet(key.encode("utf-8"))
         except Exception:
             pass
-    # Deterministic fallback derived from SECRET_KEY + ENCRYPTION_KEY
-    seed = (str(key or "") + ":" + str(settings.SECRET_KEY or "seoos-fallback-secret")).encode("utf-8")
-    derived = base64.urlsafe_b64encode(hashlib.sha256(seed).digest())
+    # Secure PBKDF2 HMAC derivation with pinned salt when ENCRYPTION_KEY is derived
+    secret_material = (str(settings.SECRET_KEY or "seoos-fallback-secret")).encode("utf-8")
+    salt = b"ai_seo_os_kdf_salt_v1"  # Static salt to maintain deterministic decryption
+    kdf = PBKDF2HMAC(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=salt,
+        iterations=100_000,
+    )
+    derived = base64.urlsafe_b64encode(kdf.derive(secret_material))
     return Fernet(derived)
 
 def encrypt_value(value: str) -> str:
