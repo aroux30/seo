@@ -245,6 +245,7 @@ async def auto_schedule_endpoint(
             created=result.get("created", 0),
             skipped=result.get("skipped_existing", 0),
             remaining_open=result.get("remaining_open", 0),
+            throttled=result.get("throttled", False),
             scheduled_through=max(scheduled_dates) if scheduled_dates else None,
         )
     }

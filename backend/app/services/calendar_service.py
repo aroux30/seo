@@ -681,7 +681,10 @@ async def auto_schedule_from_opportunities(
     detections becomes a publishing cadence instead of twenty posts on one day.
     Each run schedules at most `max_entries` opportunities; the ones it could
     not (or did not) schedule are reported back so the caller can show the user
-    exactly why nothing was added.
+    exactly why nothing was added. When the site already holds at least
+    `max_entries` outstanding AI slots (planned/in_progress, not deleted), the
+    run creates nothing (`throttled: true`): repeated clicks must read as a
+    no-op, not as a flood of the next-best findings.
     """
     await _assert_website_in_org(db, website_id, org_id)
     if max_entries < 1:
@@ -713,6 +716,30 @@ async def auto_schedule_from_opportunities(
             select(Opportunity.fingerprint).where(Opportunity.id.in_(taken_ids))
         )
         taken_fingerprints = {fp for fp in fp_rows.scalars().all() if fp}
+
+    # Flood guard: outstanding AI slots the user has not finished yet. Without
+    # this, every extra click schedules the *next* max_entries open findings,
+    # which reads as "the button spams the calendar with more of the same".
+    outstanding = (
+        await db.execute(
+            select(func.count())
+            .select_from(ContentCalendarEntry)
+            .where(
+                ContentCalendarEntry.website_id == website_id,
+                ContentCalendarEntry.deleted_at.is_(None),
+                ContentCalendarEntry.source == "ai_auto",
+                ContentCalendarEntry.status.in_(("planned", "in_progress")),
+            )
+        )
+    ).scalar_one()
+    if outstanding >= max_entries:
+        return {
+            "created": 0,
+            "skipped_existing": len(taken_ids),
+            "remaining_open": 0,
+            "throttled": True,
+            "entries": [],
+        }
 
     # Opportunity is a plain BaseModel with no SoftDeleteMixin: dismissal is
     # recorded as status/dismissed_at, so there is no deleted_at to filter on.
@@ -803,6 +830,7 @@ async def auto_schedule_from_opportunities(
         "created": len(created),
         "skipped_existing": skipped_existing,
         "remaining_open": remaining_open,
+        "throttled": False,
         "entries": created,
     }
 

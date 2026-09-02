@@ -374,8 +374,12 @@ export default function WebsiteCalendarPage() {
     setError(null);
     try {
       const res = await autoScheduleFromOpportunities(websiteId, 10);
-      const { created, skipped, remaining_open: remainingOpen } = res;
-      if (created === 0 && (skipped > 0 || remainingOpen === 0)) {
+      const { created, skipped, remaining_open: remainingOpen, throttled } = res;
+      if (throttled) {
+        toast.success(
+          `این سایت از قبل ${formatNumberFa(10)} اسلات برنامه‌ریزی‌شدهٔ AI دارد؛ اسلات تکراری ساخته نشد. برای برنامهٔ جدید، اسلات‌های فعلی را تکمیل یا حذف کنید.`
+        );
+      } else if (created === 0 && (skipped > 0 || remainingOpen === 0)) {
         toast.success(
           `اسلات جدیدی اضافه نشد: ${formatNumberFa(skipped)} فرصت قبلاً در تقویم برنامه‌ریزی شده‌اند (حذف‌شده‌ها هم شامل می‌شود تا موضوع تکراری دوباره ساخته نشود)` +
             (remainingOpen > 0

@@ -172,6 +172,9 @@ class CalendarAutoScheduleResult(BaseModel):
     # Open opportunities still without a slot after this run (they stay for the
     # next click - the scheduler adds at most max_entries per call).
     remaining_open: int = 0
+    # True when the website already holds >= max_entries outstanding AI slots,
+    # so this run deliberately created nothing instead of flooding the calendar.
+    throttled: bool = False
     scheduled_through: datetime | None = None
 
 

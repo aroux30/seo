@@ -97,6 +97,8 @@ export interface CalendarAutoScheduleResult {
   skipped: number;
   /** Open opportunities still without a slot after this run. */
   remaining_open: number;
+  /** True when outstanding AI slots already cover max_entries: nothing was created. */
+  throttled: boolean;
   scheduled_through: string | null;
 }
 
