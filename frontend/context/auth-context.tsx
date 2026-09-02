@@ -30,6 +30,7 @@ export interface Website {
   website_type: string;
   language: string;
   country?: string;
+  description?: string;
   automation_mode: string;
   status: string;
 }
