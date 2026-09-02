@@ -81,11 +81,12 @@ async def get_devices(
 @router.get("/gsc/dates/{website_id}", response_model=dict)
 async def get_dates(
     website_id: UUID,
+    days: int | None = Query(None, ge=1, le=500),
     limit: int = Query(365, ge=1, le=500),
     sort_by: str = Query("date"),
     member: OrganizationMember = Depends(require_role("viewer")),
     db: AsyncSession = Depends(get_db),
 ):
     await assert_website_in_org(db, website_id, member.organization_id)
-    dates = await list_gsc_dates(db, website_id, limit=limit, sort_by=sort_by)
+    dates = await list_gsc_dates(db, website_id, limit=limit, sort_by=sort_by, days=days)
     return {"data": [GscDateRead.model_validate(d) for d in dates]}

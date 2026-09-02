@@ -131,6 +131,7 @@ async def fetch_gsc_data(site_url: str, access_token: str, start_date: str, end_
         "endDate": end_date,
         "dimensions": dimensions,
         "type": search_type,
+        "dataState": "all",
         "rowLimit": 2000
     }
     
@@ -473,7 +474,7 @@ async def list_gsc_devices(db: AsyncSession, website_id: UUID, limit: int = 100,
     result = await db.execute(stmt)
     return list(result.scalars().all())
 
-async def list_gsc_dates(db: AsyncSession, website_id: UUID, limit: int = 100, sort_by: str = "date") -> list[GscDate]:
+async def list_gsc_dates(db: AsyncSession, website_id: UUID, limit: int = 100, sort_by: str = "date", days: int | None = None) -> list[GscDate]:
     order_col = GscDate.date_metric
     if sort_by == "clicks":
         order_col = GscDate.clicks
@@ -484,6 +485,11 @@ async def list_gsc_dates(db: AsyncSession, website_id: UUID, limit: int = 100, s
     elif sort_by == "position":
         order_col = GscDate.position
 
-    stmt = select(GscDate).where(GscDate.website_id == website_id).order_by(desc(order_col) if sort_by != "position" else order_col.asc()).limit(limit)
+    stmt = select(GscDate).where(GscDate.website_id == website_id)
+    if days:
+        cutoff = date.today() - timedelta(days=days)
+        stmt = stmt.where(GscDate.date_metric >= cutoff)
+
+    stmt = stmt.order_by(desc(order_col) if sort_by != "position" else order_col.asc()).limit(limit)
     result = await db.execute(stmt)
     return list(result.scalars().all())

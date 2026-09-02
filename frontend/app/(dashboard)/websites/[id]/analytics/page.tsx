@@ -82,7 +82,7 @@ export default function WebsiteAnalyticsPage() {
         api.get(`/analytics/gsc/pages/${websiteId}?sort_by=${sortBy}&limit=100`),
         api.get(`/analytics/gsc/countries/${websiteId}?sort_by=${sortBy}&limit=100`),
         api.get(`/analytics/gsc/devices/${websiteId}?sort_by=${sortBy}&limit=100`),
-        api.get(`/analytics/gsc/dates/${websiteId}?sort_by=${sortBy === "date" ? "date" : sortBy}&limit=365`),
+        api.get(`/analytics/gsc/dates/${websiteId}?days=${currentDays}&sort_by=${sortBy === "date" ? "date" : sortBy}&limit=365`),
       ]);
       setOverview(ov || { total_clicks: 0, total_impressions: 0, avg_ctr: 0, avg_position: 0 });
       setQueries(qs || []);
@@ -111,10 +111,11 @@ export default function WebsiteAnalyticsPage() {
       const info = res?.data || res;
       const qCount = info?.queries_added ?? 0;
       const pCount = info?.pages_added ?? 0;
-      if (qCount === 0 && pCount === 0 && newSearchType !== "web") {
+      const dtCount = info?.dates_added ?? 0;
+      if (qCount === 0 && pCount === 0 && dtCount === 0 && newSearchType !== "web") {
         setSyncMessage(`برای نوع جستجوی «${newSearchType === "image" ? "تصاویر" : newSearchType === "video" ? "ویدیو" : "اخبار"}» هیچ داده‌ای در گوگل سرچ کنسول یافت نشد. برای مشاهده آمار اصلی، لطفاً نوع جستجو را روی «وب (Web)» قرار دهید.`);
       } else {
-        setSyncMessage(`داده‌های جدید با فیلترهای انتخابی همگام‌سازی شد (${qCount} کلمه کلیدی، ${pCount} صفحه).`);
+        setSyncMessage(`داده‌های جدید با فیلترهای انتخابی همگام‌سازی شد (${qCount} کلمه کلیدی، ${pCount} صفحه، ${dtCount} روز).`);
       }
       api.clearCache();
       await loadData(days);
@@ -135,10 +136,11 @@ export default function WebsiteAnalyticsPage() {
       const info = res?.data || res;
       const qCount = info?.queries_added ?? 0;
       const pCount = info?.pages_added ?? 0;
-      if (qCount === 0 && pCount === 0 && searchType !== "web") {
+      const dtCount = info?.dates_added ?? 0;
+      if (qCount === 0 && pCount === 0 && dtCount === 0 && searchType !== "web") {
         setSyncMessage(`همگام‌سازی انجام شد، اما برای نوع جستجوی «${searchType === "image" ? "تصاویر" : searchType === "video" ? "ویدیو" : "اخبار"}» هیچ رکوردی در سرچ کنسول وجود ندارد. لطفاً نوع جستجو را به «وب (Web)» تغییر دهید.`);
       } else {
-        setSyncMessage(`داده‌های سرچ کنسول با موفقیت دریافت و همگام‌سازی شد (${qCount} کلمه کلیدی، ${pCount} صفحه، ${info?.dates_added ?? 0} روز).`);
+        setSyncMessage(`داده‌های سرچ کنسول با موفقیت دریافت و همگام‌سازی شد (${qCount} کلمه کلیدی، ${pCount} صفحه، ${dtCount} روز).`);
       }
       api.clearCache();
       await loadData(days);
@@ -348,7 +350,7 @@ export default function WebsiteAnalyticsPage() {
               }`}
             >
               <Globe className="h-4 w-4" />
-              <span>کشورها (Countries)</span>
+              <span>کشورها (Countries) - {countries.length}</span>
             </button>
 
             <button
@@ -360,7 +362,7 @@ export default function WebsiteAnalyticsPage() {
               }`}
             >
               <Monitor className="h-4 w-4" />
-              <span>دستگاه‌ها (Devices)</span>
+              <span>دستگاه‌ها (Devices) - {devices.length}</span>
             </button>
 
             <button
@@ -372,7 +374,7 @@ export default function WebsiteAnalyticsPage() {
               }`}
             >
               <Calendar className="h-4 w-4" />
-              <span>روزها (Days)</span>
+              <span>روزها (Days) - {dates.length}</span>
             </button>
           </div>
 
@@ -568,17 +570,27 @@ export default function WebsiteAnalyticsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5">
-                {dates.map((d) => (
-                  <tr key={d.date_metric} className="transition hover:bg-white/5">
-                    <td className="py-3.5 text-right font-bold text-white" dir="ltr">{new Date(d.date_metric).toLocaleDateString('fa-IR')}</td>
-                    <td className="py-3.5 text-right font-bold text-emerald-400">{d.clicks.toLocaleString()}</td>
-                    <td className="py-3.5 text-right text-white">{d.impressions.toLocaleString()}</td>
-                    <td className="py-3.5 text-right text-muted-foreground">{formatCtr(d.ctr)}</td>
-                    <td className="py-3.5 text-right">
-                      <span className="rounded-full bg-amber-500/15 px-2.5 py-1 font-bold text-amber-400">{formatPosition(d.position)}</span>
+                {dates.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="py-12 text-center text-xs text-muted-foreground">
+                      داده‌ای برای روزها در این بازه زمانی یافت نشد. برای دریافت داده‌های تازه، روی دکمه «همگام‌سازی مستقیم با سرچ کنسول» کلیک کنید.
                     </td>
                   </tr>
-                ))}
+                ) : (
+                  dates.map((d) => (
+                    <tr key={d.id || d.date_metric} className="transition hover:bg-white/5">
+                      <td className="py-3.5 text-right font-bold text-white" dir="ltr">
+                        {d.date_metric} ({new Date(d.date_metric).toLocaleDateString('fa-IR')})
+                      </td>
+                      <td className="py-3.5 text-right font-bold text-emerald-400">{d.clicks.toLocaleString()}</td>
+                      <td className="py-3.5 text-right text-white">{d.impressions.toLocaleString()}</td>
+                      <td className="py-3.5 text-right text-muted-foreground">{formatCtr(d.ctr)}</td>
+                      <td className="py-3.5 text-right">
+                        <span className="rounded-full bg-amber-500/15 px-2.5 py-1 font-bold text-amber-400">{formatPosition(d.position)}</span>
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
