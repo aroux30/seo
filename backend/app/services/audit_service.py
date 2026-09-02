@@ -179,9 +179,14 @@ def _extract_metrics(audits_data: dict) -> dict:
         a = audits_data.get(audit_id)
         if not a:
             continue
+        display = a.get("displayValue", "")
+        if audit_id == "server-response-time" and a.get("numericValue") is not None:
+            # displayValue is a sentence ("Root document took 30 ms"); the chip
+            # only has room for the measurement itself.
+            display = f"{int(a['numericValue'])} ms"
         metrics[audit_id] = {
             "label": label,
-            "display_value": a.get("displayValue", ""),
+            "display_value": display,
             "value": a.get("numericValue"),
             "score": a.get("score"),
         }
