@@ -14,8 +14,8 @@ is_production = settings.ENVIRONMENT.lower() == "production"
 
 # In production, validate critical secret placeholders to fail closed
 if is_production:
-    if settings.SECRET_KEY in ("change-me", "CHANGE_ME_64_CHAR_RANDOM_HEX", ""):
-        raise RuntimeError("FATAL: SECRET_KEY must be properly set in production environment!")
+    if settings.SECRET_KEY in ("change-me", "CHANGE_ME_64_CHAR_RANDOM_HEX", "") or len(settings.SECRET_KEY) < 32:
+        raise RuntimeError("FATAL: SECRET_KEY must be properly set (min 32 characters) in production environment!")
     if settings.ENCRYPTION_KEY in ("change-me", "CHANGE_ME_FERNET_KEY", ""):
         raise RuntimeError("FATAL: ENCRYPTION_KEY must be properly set in production environment!")
 
@@ -33,7 +33,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 

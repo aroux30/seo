@@ -57,17 +57,21 @@ async def gsc_callback(
 
     settings = get_settings()
 
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(
-            "https://oauth2.googleapis.com/token",
-            data={
-                "code": code,
-                "client_id": settings.GOOGLE_CLIENT_ID,
-                "client_secret": settings.GOOGLE_CLIENT_SECRET,
-                "redirect_uri": settings.GOOGLE_REDIRECT_URI,
-                "grant_type": "authorization_code",
-            },
-        )
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(15.0, connect=5.0)) as client:
+            resp = await client.post(
+                "https://oauth2.googleapis.com/token",
+                data={
+                    "code": code,
+                    "client_id": settings.GOOGLE_CLIENT_ID,
+                    "client_secret": settings.GOOGLE_CLIENT_SECRET,
+                    "redirect_uri": settings.GOOGLE_REDIRECT_URI,
+                    "grant_type": "authorization_code",
+                },
+            )
+    except (httpx.TimeoutException, httpx.NetworkError) as exc:
+        logger.error("Google token exchange timed out or network error: %s", exc)
+        raise HTTPException(status_code=504, detail="Google OAuth service timed out or is unreachable")
     
     if resp.status_code != 200:
         logger.warning("Google token exchange failed with HTTP %s", resp.status_code)
