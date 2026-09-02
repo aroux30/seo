@@ -17,11 +17,12 @@ router = APIRouter(prefix="/analytics", tags=["analytics"])
 @router.get("/gsc/overview/{website_id}", response_model=dict)
 async def get_overview(
     website_id: UUID,
+    days: int = Query(30, ge=1, le=500),
     member: OrganizationMember = Depends(require_role("viewer")),
     db: AsyncSession = Depends(get_db),
 ):
     await assert_website_in_org(db, website_id, member.organization_id)
-    overview = await get_gsc_overview(db, website_id)
+    overview = await get_gsc_overview(db, website_id, days=days)
     return {"data": overview}
 
 

@@ -43,15 +43,41 @@ export default function WebsiteAnalyticsPage() {
   const [searchTerm, setSearchTerm] = useState<string>("");
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
 
+  const getDaysFromRange = (range: string) => {
+    switch(range) {
+      case "24h": return 1;
+      case "7d": return 7;
+      case "28d": return 28;
+      case "3m": return 90;
+      case "6m": return 180;
+      case "12m": return 365;
+      case "16m": return 480;
+      default: return 28;
+    }
+  };
+
+  const formatCtr = (val: any) => {
+    if (val === null || val === undefined || isNaN(Number(val))) return "0%";
+    const num = Number(val);
+    const pct = num > 0 && num <= 1 ? num * 100 : num;
+    return `${pct.toFixed(1)}%`;
+  };
+
+  const formatPosition = (val: any) => {
+    if (val === null || val === undefined || isNaN(Number(val))) return "0";
+    return Number(val).toFixed(1);
+  };
+
   useEffect(() => {
     loadData();
   }, [websiteId, sortBy]);
 
-  const loadData = async () => {
+  const loadData = async (overrideDays?: number) => {
     setLoading(true);
+    const currentDays = overrideDays ?? getDaysFromRange(dateRange);
     try {
       const [ov, qs, ps, cs, ds, dts] = await Promise.all([
-        api.get(`/analytics/gsc/overview/${websiteId}`),
+        api.get(`/analytics/gsc/overview/${websiteId}?days=${currentDays}`),
         api.get(`/analytics/gsc/queries/${websiteId}?sort_by=${sortBy}&limit=100`),
         api.get(`/analytics/gsc/pages/${websiteId}?sort_by=${sortBy}&limit=100`),
         api.get(`/analytics/gsc/countries/${websiteId}?sort_by=${sortBy}&limit=100`),
@@ -71,19 +97,6 @@ export default function WebsiteAnalyticsPage() {
     }
   };
 
-  const getDaysFromRange = (range: string) => {
-    switch(range) {
-      case "24h": return 1;
-      case "7d": return 7;
-      case "28d": return 28;
-      case "3m": return 90;
-      case "6m": return 180;
-      case "12m": return 365;
-      case "16m": return 480;
-      default: return 28;
-    }
-  };
-
   const handleFilterChange = async (newDateRange: string, newSearchType: string) => {
     setDateRange(newDateRange);
     setSearchType(newSearchType);
@@ -92,10 +105,19 @@ export default function WebsiteAnalyticsPage() {
     
     setSyncing(true);
     setSyncMessage(null);
+    api.clearCache();
     try {
-      await api.post(`/integrations/gsc/sync/${websiteId}?days=${days}&search_type=${newSearchType}`);
-      setSyncMessage("داده‌های جدید با فیلترهای انتخابی همگام‌سازی شد.");
-      await loadData();
+      const res: any = await api.post(`/integrations/gsc/sync/${websiteId}?days=${days}&search_type=${newSearchType}`);
+      const info = res?.data || res;
+      const qCount = info?.queries_added ?? 0;
+      const pCount = info?.pages_added ?? 0;
+      if (qCount === 0 && pCount === 0 && newSearchType !== "web") {
+        setSyncMessage(`برای نوع جستجوی «${newSearchType === "image" ? "تصاویر" : newSearchType === "video" ? "ویدیو" : "اخبار"}» هیچ داده‌ای در گوگل سرچ کنسول یافت نشد. برای مشاهده آمار اصلی، لطفاً نوع جستجو را روی «وب (Web)» قرار دهید.`);
+      } else {
+        setSyncMessage(`داده‌های جدید با فیلترهای انتخابی همگام‌سازی شد (${qCount} کلمه کلیدی، ${pCount} صفحه).`);
+      }
+      api.clearCache();
+      await loadData(days);
     } catch (err: any) {
       setSyncMessage(err?.message || "خطا در اعمال فیلترها. لطفاً اتصال اکانت را بررسی کنید.");
     } finally {
@@ -106,11 +128,20 @@ export default function WebsiteAnalyticsPage() {
   const handleManualSync = async () => {
     setSyncing(true);
     setSyncMessage(null);
+    api.clearCache();
     const days = getDaysFromRange(dateRange);
     try {
-      await api.post(`/integrations/gsc/sync/${websiteId}?days=${days}&search_type=${searchType}`);
-      setSyncMessage("داده‌های جدید سرچ کنسول با موفقیت دریافت و همگام‌سازی شد.");
-      await loadData();
+      const res: any = await api.post(`/integrations/gsc/sync/${websiteId}?days=${days}&search_type=${searchType}`);
+      const info = res?.data || res;
+      const qCount = info?.queries_added ?? 0;
+      const pCount = info?.pages_added ?? 0;
+      if (qCount === 0 && pCount === 0 && searchType !== "web") {
+        setSyncMessage(`همگام‌سازی انجام شد، اما برای نوع جستجوی «${searchType === "image" ? "تصاویر" : searchType === "video" ? "ویدیو" : "اخبار"}» هیچ رکوردی در سرچ کنسول وجود ندارد. لطفاً نوع جستجو را به «وب (Web)» تغییر دهید.`);
+      } else {
+        setSyncMessage(`داده‌های سرچ کنسول با موفقیت دریافت و همگام‌سازی شد (${qCount} کلمه کلیدی، ${pCount} صفحه، ${info?.dates_added ?? 0} روز).`);
+      }
+      api.clearCache();
+      await loadData(days);
     } catch (err: any) {
       setSyncMessage(err?.message || "خطا در همگام‌سازی داده‌های سرچ کنسول. لطفاً اتصال اکانت را بررسی کنید.");
     } finally {
@@ -404,11 +435,11 @@ export default function WebsiteAnalyticsPage() {
                         {q.impressions.toLocaleString()}
                       </td>
                       <td className="py-3.5 text-right text-muted-foreground font-semibold">
-                        {q.ctr}%
+                        {formatCtr(q.ctr)}
                       </td>
                       <td className="py-3.5 text-right">
                         <span className="rounded-full bg-amber-500/15 px-2.5 py-1 font-bold text-amber-400">
-                          {q.position}
+                          {formatPosition(q.position)}
                         </span>
                       </td>
                     </tr>
@@ -457,11 +488,11 @@ export default function WebsiteAnalyticsPage() {
                         {p.impressions.toLocaleString()}
                       </td>
                       <td className="py-3.5 text-right text-muted-foreground font-semibold">
-                        {p.ctr}%
+                        {formatCtr(p.ctr)}
                       </td>
                       <td className="py-3.5 text-right">
                         <span className="rounded-full bg-amber-500/15 px-2.5 py-1 font-bold text-amber-400">
-                          {p.position}
+                          {formatPosition(p.position)}
                         </span>
                       </td>
                     </tr>
@@ -488,9 +519,9 @@ export default function WebsiteAnalyticsPage() {
                     <td className="py-3.5 text-right font-bold text-white">{getCountryName(c.country)}</td>
                     <td className="py-3.5 text-right font-bold text-emerald-400">{c.clicks.toLocaleString()}</td>
                     <td className="py-3.5 text-right text-white">{c.impressions.toLocaleString()}</td>
-                    <td className="py-3.5 text-right text-muted-foreground">{c.ctr}%</td>
+                    <td className="py-3.5 text-right text-muted-foreground">{formatCtr(c.ctr)}</td>
                     <td className="py-3.5 text-right">
-                      <span className="rounded-full bg-amber-500/15 px-2.5 py-1 font-bold text-amber-400">{c.position}</span>
+                      <span className="rounded-full bg-amber-500/15 px-2.5 py-1 font-bold text-amber-400">{formatPosition(c.position)}</span>
                     </td>
                   </tr>
                 ))}
@@ -515,9 +546,9 @@ export default function WebsiteAnalyticsPage() {
                     <td className="py-3.5 text-right font-bold text-white">{d.device}</td>
                     <td className="py-3.5 text-right font-bold text-emerald-400">{d.clicks.toLocaleString()}</td>
                     <td className="py-3.5 text-right text-white">{d.impressions.toLocaleString()}</td>
-                    <td className="py-3.5 text-right text-muted-foreground">{d.ctr}%</td>
+                    <td className="py-3.5 text-right text-muted-foreground">{formatCtr(d.ctr)}</td>
                     <td className="py-3.5 text-right">
-                      <span className="rounded-full bg-amber-500/15 px-2.5 py-1 font-bold text-amber-400">{d.position}</span>
+                      <span className="rounded-full bg-amber-500/15 px-2.5 py-1 font-bold text-amber-400">{formatPosition(d.position)}</span>
                     </td>
                   </tr>
                 ))}
@@ -542,9 +573,9 @@ export default function WebsiteAnalyticsPage() {
                     <td className="py-3.5 text-right font-bold text-white" dir="ltr">{new Date(d.date_metric).toLocaleDateString('fa-IR')}</td>
                     <td className="py-3.5 text-right font-bold text-emerald-400">{d.clicks.toLocaleString()}</td>
                     <td className="py-3.5 text-right text-white">{d.impressions.toLocaleString()}</td>
-                    <td className="py-3.5 text-right text-muted-foreground">{d.ctr}%</td>
+                    <td className="py-3.5 text-right text-muted-foreground">{formatCtr(d.ctr)}</td>
                     <td className="py-3.5 text-right">
-                      <span className="rounded-full bg-amber-500/15 px-2.5 py-1 font-bold text-amber-400">{d.position}</span>
+                      <span className="rounded-full bg-amber-500/15 px-2.5 py-1 font-bold text-amber-400">{formatPosition(d.position)}</span>
                     </td>
                   </tr>
                 ))}

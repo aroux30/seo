@@ -116,7 +116,7 @@ async def gsc_status(
 @router.post("/gsc/sync/{website_id}", response_model=dict)
 async def trigger_gsc_sync(
     website_id: UUID,
-    days: int = Query(30, ge=1, le=90),
+    days: int = Query(30, ge=1, le=500),
     search_type: str = Query("web"),
     member: OrganizationMember = Depends(require_role("seo_manager")),
     db: AsyncSession = Depends(get_db),

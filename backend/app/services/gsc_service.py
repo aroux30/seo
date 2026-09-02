@@ -178,14 +178,20 @@ async def sync_gsc_data(
     root_domain = base_domain[4:] if base_domain.startswith("www.") else base_domain
     
     site_url_variations = []
-    # Always prioritize the exact URL the user provided, so http/https are treated distinctly
+    # Always prioritize the exact URL the user provided
     site_url_variations.append(website.base_url)
     if not website.base_url.endswith('/'):
         site_url_variations.append(website.base_url + '/')
-        
-    # We removed sc-domain and other protocol fallbacks here because the user
-    # explicitly expects strict matching. If they add http://, it should only 
-    # fetch http:// (and fail if not verified), rather than silently fetching https://.
+    # Domain property in GSC (DNS verification)
+    sc_dom = f"sc-domain:{root_domain}"
+    if sc_dom not in site_url_variations:
+        site_url_variations.append(sc_dom)
+    # Common variations (https, http, www)
+    for proto in ["https://", "http://"]:
+        for d in [base_domain, root_domain, f"www.{root_domain}"]:
+            v = f"{proto}{d}/"
+            if v not in site_url_variations:
+                site_url_variations.append(v)
     
     queries_data = None
     pages_data = None
@@ -246,8 +252,10 @@ async def sync_gsc_data(
         keys = row.get("keys", [""])
         q_objects.append(GscQuery(
             website_id=website_id, query=keys[0], clicks=int(row.get("clicks", 0)),
-            impressions=int(row.get("impressions", 0)), ctr=float(row.get("ctr", 0.0)),
-            position=float(row.get("position", 0.0)), date_metric=today
+            impressions=int(row.get("impressions", 0)),
+            ctr=round(float(row.get("ctr", 0.0)) * 100, 2),
+            position=round(float(row.get("position", 0.0)), 1),
+            date_metric=today
         ))
         
     # Insert new pages
@@ -255,8 +263,10 @@ async def sync_gsc_data(
         keys = row.get("keys", [""])
         p_objects.append(GscPage(
             website_id=website_id, page_url=keys[0], clicks=int(row.get("clicks", 0)),
-            impressions=int(row.get("impressions", 0)), ctr=float(row.get("ctr", 0.0)),
-            position=float(row.get("position", 0.0)), date_metric=today
+            impressions=int(row.get("impressions", 0)),
+            ctr=round(float(row.get("ctr", 0.0)) * 100, 2),
+            position=round(float(row.get("position", 0.0)), 1),
+            date_metric=today
         ))
         
     # Insert new countries
@@ -265,8 +275,10 @@ async def sync_gsc_data(
             keys = row.get("keys", [""])
             c_objects.append(GscCountry(
                 website_id=website_id, country=keys[0].upper(), clicks=int(row.get("clicks", 0)),
-                impressions=int(row.get("impressions", 0)), ctr=float(row.get("ctr", 0.0)),
-                position=float(row.get("position", 0.0)), date_metric=today
+                impressions=int(row.get("impressions", 0)),
+                ctr=round(float(row.get("ctr", 0.0)) * 100, 2),
+                position=round(float(row.get("position", 0.0)), 1),
+                date_metric=today
             ))
             
     # Insert new devices
@@ -275,8 +287,10 @@ async def sync_gsc_data(
             keys = row.get("keys", [""])
             d_objects.append(GscDevice(
                 website_id=website_id, device=keys[0].upper(), clicks=int(row.get("clicks", 0)),
-                impressions=int(row.get("impressions", 0)), ctr=float(row.get("ctr", 0.0)),
-                position=float(row.get("position", 0.0)), date_metric=today
+                impressions=int(row.get("impressions", 0)),
+                ctr=round(float(row.get("ctr", 0.0)) * 100, 2),
+                position=round(float(row.get("position", 0.0)), 1),
+                date_metric=today
             ))
             
     # Insert new dates
@@ -289,8 +303,10 @@ async def sync_gsc_data(
                 row_date = today
             dt_objects.append(GscDate(
                 website_id=website_id, clicks=int(row.get("clicks", 0)),
-                impressions=int(row.get("impressions", 0)), ctr=float(row.get("ctr", 0.0)),
-                position=float(row.get("position", 0.0)), date_metric=row_date
+                impressions=int(row.get("impressions", 0)),
+                ctr=round(float(row.get("ctr", 0.0)) * 100, 2),
+                position=round(float(row.get("position", 0.0)), 1),
+                date_metric=row_date
             ))
 
     if q_objects: db.add_all(q_objects)
@@ -336,10 +352,38 @@ async def sync_gsc_data(
         "dates_added": len(dt_objects),
     }
 
-async def get_gsc_overview(db: AsyncSession, website_id: UUID) -> dict:
+async def get_gsc_overview(db: AsyncSession, website_id: UUID, days: int = 30) -> dict:
     """Calculate aggregated Search Console performance metrics for a website."""
     from datetime import date, timedelta
-    thirty_days_ago = date.today() - timedelta(days=30)
+    cutoff = date.today() - timedelta(days=days)
+
+    # First attempt: calculate from GscDate (the true time-series with full site traffic)
+    date_stmt = select(
+        func.coalesce(func.sum(GscDate.clicks), 0).label("total_clicks"),
+        func.coalesce(func.sum(GscDate.impressions), 0).label("total_impressions"),
+        func.coalesce(
+            func.sum(GscDate.clicks) * 100.0 / func.nullif(func.sum(GscDate.impressions), 0),
+            0.0
+        ).label("avg_ctr"),
+        func.coalesce(
+            func.sum(GscDate.position * GscDate.impressions) / func.nullif(func.sum(GscDate.impressions), 0),
+            0.0
+        ).label("avg_position"),
+    ).where(
+        GscDate.website_id == website_id,
+        GscDate.date_metric >= cutoff,
+    )
+    date_res = (await db.execute(date_stmt)).one()
+
+    if date_res.total_impressions > 0 or date_res.total_clicks > 0:
+        return {
+            "total_clicks": int(date_res.total_clicks),
+            "total_impressions": int(date_res.total_impressions),
+            "avg_ctr": round(float(date_res.avg_ctr), 2),
+            "avg_position": round(float(date_res.avg_position), 1),
+        }
+
+    # Fallback to GscQuery
     stmt = select(
         func.coalesce(func.sum(GscQuery.clicks), 0).label("total_clicks"),
         func.coalesce(func.sum(GscQuery.impressions), 0).label("total_impressions"),
@@ -353,7 +397,7 @@ async def get_gsc_overview(db: AsyncSession, website_id: UUID) -> dict:
         ).label("avg_position"),
     ).where(
         GscQuery.website_id == website_id,
-        GscQuery.date_metric >= thirty_days_ago,
+        GscQuery.date_metric >= cutoff,
     )
 
     result = await db.execute(stmt)

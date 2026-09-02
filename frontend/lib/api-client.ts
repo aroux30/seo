@@ -235,6 +235,11 @@ async function doRequest<T = any>(
         if ((key.split("::")[1] ?? "").startsWith("/content")) getCache.delete(key);
       }
     }
+    if (endpoint.startsWith("/integrations")) {
+      for (const key of [...getCache.keys()]) {
+        if ((key.split("::")[1] ?? "").startsWith("/analytics")) getCache.delete(key);
+      }
+    }
   }
 
   return json.data !== undefined ? json.data : json;
